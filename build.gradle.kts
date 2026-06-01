@@ -47,6 +47,7 @@ mavenPublishing {
 
 repositories {
     mavenCentral()
+    maven("https://jitpack.io")
 }
 
 dependencies {
@@ -54,7 +55,7 @@ dependencies {
     val junitVersion = "6.0.3"
 
     compileOnly("net.minestom:minestom:$minestomVersion")
-    api("io.github.term4:minestom-echo-fix:1.0.0")
+    api("com.github.Term4:minestom-echo-fix:v0.1.3")
 
     // Unit testing
     testImplementation("net.minestom:minestom:$minestomVersion")
