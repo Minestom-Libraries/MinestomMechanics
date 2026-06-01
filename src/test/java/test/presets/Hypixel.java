@@ -18,8 +18,6 @@ public final class Hypixel {
                 .gravityPredictScale(0.98)
                 .gravityPredictPerTick(0.08)
                 .sprintBuffer(buffer)
-                .vertical(0.40)
-                .extraHorizontal(0.5)
                 .extraVertical(0.07)
                 .verticalBounds(null, 0.40)
                 .frictionH(1.0)

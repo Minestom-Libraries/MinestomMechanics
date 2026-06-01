@@ -18,7 +18,7 @@ mavenPublishing {
         description = project.description
         url = "https://github.com/Term4/MinestomMechanics"
 
-        // I think maven central requires a license and email for publishing but I just commented them out
+        // I think maven central requires a license and email for publishing, but I just commented them out
 
         licenses {
             license {
@@ -50,7 +50,7 @@ repositories {
 }
 
 dependencies {
-    val minestomVersion = "2026.02.19-1.21.11"
+    val minestomVersion = "2026.05.17c-26.1.1"
     val junitVersion = "6.0.3"
 
     compileOnly("net.minestom:minestom:$minestomVersion")

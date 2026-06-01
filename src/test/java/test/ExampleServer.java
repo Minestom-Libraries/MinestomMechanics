@@ -7,9 +7,7 @@ import io.github.term4.minestommechanics.mechanics.damage.DamageConfig;
 import io.github.term4.minestommechanics.mechanics.damage.DamageSystem;
 import io.github.term4.minestommechanics.mechanics.knockback.KnockbackSystem;
 import io.github.term4.minestommechanics.platform.player.OptimizedPlayer;
-import net.minestom.server.entity.GameMode;
 import test.presets.Hypixel;
-import test.presets.Minemen;
 import io.github.term4.minestommechanics.platform.client.ClientInfoService;
 import net.minestom.server.Auth;
 import net.minestom.server.MinecraftServer;
@@ -24,6 +22,9 @@ import net.minestom.server.instance.block.Block;
 import net.minestom.server.item.ItemStack;
 import net.minestom.server.item.Material;
 import net.minestom.server.timer.TaskSchedule;
+import test.presets.Minemen;
+
+import java.util.Set;
 
 public class ExampleServer {
     static void main() {
@@ -65,7 +66,7 @@ public class ExampleServer {
         InstanceContainer instanceContainer = instanceManager.createInstanceContainer();
 
         // Generate the world & add lighting
-        instanceContainer.setGenerator(unit -> unit.modifier().fillHeight(0, 40, Block.RED_TERRACOTTA));
+        instanceContainer.setGenerator(unit -> unit.modifier().fillHeight(0, 40, Block.GRASS_BLOCK));
         instanceContainer.setChunkSupplier(LightingChunk::new);
 
         // Add an event handler to handle player spawning
@@ -76,7 +77,7 @@ public class ExampleServer {
             player.setRespawnPoint(new Pos(0, 42, 0));
 
             if (player instanceof OptimizedPlayer opt) {
-                opt.setPositionBroadcastInterval(1);
+                opt.setPositionBroadcastInterval(2);
             }
 
             // Example of how to get a players protocol on login (with multiple attempts, stops once protocol is known)
@@ -104,7 +105,6 @@ public class ExampleServer {
 
             /* player.getAttribute(net.minestom.server.entity.attribute.Attribute.MOVEMENT_SPEED)
                     .setBaseValue(0.1 * (1 + (0.2 * 2))); // Speed II
-
              */
         });
         

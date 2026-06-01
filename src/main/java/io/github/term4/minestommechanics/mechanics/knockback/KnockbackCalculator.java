@@ -6,7 +6,6 @@ import io.github.term4.minestommechanics.util.SprintTracker;
 import io.github.term4.minestommechanics.util.VelocityEstimator;
 import net.minestom.server.ServerFlag;
 import net.minestom.server.coordinate.Point;
-import net.minestom.server.coordinate.Pos;
 import net.minestom.server.coordinate.Vec;
 import net.minestom.server.entity.Entity;
 import org.jetbrains.annotations.Nullable;
@@ -124,10 +123,10 @@ public final class KnockbackCalculator {
         Vec dir = snap.direction();
 
         if (s != null) return new DirContext(s.getPosition(), s.getPosition().direction());
-        if (oPt != null && dir == null) return new DirContext(oPt, new Pos(oPt).withLookAt(tPt).direction());
+        if (oPt != null && dir == null) return new DirContext(oPt, oPt.asPos().withLookAt(tPt).direction());
         if (dir != null) {
             Point pt = oPt != null ? oPt : tPt;
-            return new DirContext(pt, new Pos(pt).withDirection(dir).direction());
+            return new DirContext(pt, pt.asPos().withDirection(dir).direction());
         } return null;
     }
 

@@ -21,8 +21,8 @@ public final class GroundTracker {
     /** Tick when entity was last on ground. Used to compute ticks-in-air for gravity-predicted velocity. */
     public static final Tag<Long> LAST_GROUND_TICK = Tag.Transient("mm:last-ground-tick");
     private static final double TPS = ServerFlag.SERVER_TICKS_PER_SECOND;
-    // TODO: Make this landing epsilon value configurable in the presets
-    private static final double LANDING_EPSILON = 0.01;
+    // TODO: Make this landing epsilon value configurable in the presets, make sure raytracing is correct
+    private static final double LANDING_EPSILON = 0.005;
 
     public GroundTracker() {}
 
@@ -97,6 +97,7 @@ public final class GroundTracker {
         double nextY = y + vyTick;
         if (isSolidWithinEpsilon(instance, x, nextY, z, LANDING_EPSILON)) return true;
 
+        // TODO: Update to work dynamically vs hard coded
         // 2nd-tick lookahead (vanilla-ish): v = v * 0.98 - 0.08
         double vyNext = (vyTick * 0.98) - 0.08;
         double next2Y = nextY + vyNext;
