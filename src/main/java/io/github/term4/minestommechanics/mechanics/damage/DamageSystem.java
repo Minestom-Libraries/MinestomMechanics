@@ -58,25 +58,52 @@ public final class DamageSystem {
         this.registry = new DamageTypeRegistry(this, mm).registerVanillaDefaults();
     }
 
+    /** Effective config for a snapshot carrying none: the victim's scoped profile, else the install config. */
+    private DamageConfig configFor(@Nullable Entity target) {
+        DamageConfig scoped = mm.profiles().damageFor(target);
+        return scoped != null ? scoped : config;
+    }
+
+    /**
+     * Outcome of a {@link #apply} call, mirroring vanilla 1.8 {@code EntityLiving.damageEntity}: rulesets gate
+     * hit side effects on it (knockback on {@link #FULL_HIT}, sprint reset on {@link #landed()}).
+     */
+    public enum HitResult {
+        /** Absorbed (invul window / cancelled / zero amount) - vanilla {@code damageEntity} returned false. */
+        BLOCKED,
+        /**
+         * Overdamage replacement inside the invul window - damage dealt and vanilla returns true, but the
+         * fresh-hit effects (base knockback, hurt animation) are skipped ({@code flag = false}).
+         */
+        OVERDAMAGE,
+        /** Fresh hit - full effects. */
+        FULL_HIT;
+
+        /** Vanilla {@code damageEntity}'s boolean: the hit dealt damage (fresh or replacement). */
+        public boolean landed() { return this != BLOCKED; }
+    }
+
     /**
      * Applies damage from a snapshot. The base amount comes from the snapshot/type via the
      * {@link DamageCalculator}; type-specific modifiers (e.g. the melee crit multiplier) are baked
-     * into the snapshot by the producing {@link DamageType} before it is applied.
+     * into the snapshot by the producing {@link DamageType} before it is applied. Returns the
+     * {@link HitResult} so rulesets can gate hit side effects vanilla-style.
      */
-    public void apply(DamageSnapshot snap) {
-        if (!(snap.target() instanceof LivingEntity)) return;
+    public HitResult apply(DamageSnapshot snap) {
+        if (!(snap.target() instanceof LivingEntity)) return HitResult.BLOCKED;
 
-        DamageSnapshot working = snap.config() != null ? snap : snap.withConfig(config);
+        // Config chain: snapshot override -> victim's scoped profile -> install config.
+        DamageSnapshot working = snap.config() != null ? snap : snap.withConfig(configFor(snap.target()));
         DamageResult result = calc.compute(working);
 
         float amount = result.amount();
 
         DamageEvent event = new DamageEvent(working, amount);
         apiEvents.call(event);
-        if (event.cancelled()) return;
+        if (event.isCancelled()) return HitResult.BLOCKED;
 
         DamageSnapshot finalSnap = event.finalSnap();
-        if (!(finalSnap.target() instanceof LivingEntity living)) return;
+        if (!(finalSnap.target() instanceof LivingEntity living)) return HitResult.BLOCKED;
 
         DamageType type = finalSnap.type();
         DamageContext typeCtx = DamageContext.of(finalSnap, services);
@@ -86,7 +113,7 @@ public final class DamageSystem {
         boolean bypass = event.bypassInvul() || typeCfg.bypassInvul(typeCtx);
 
         ResolvedDamageConfig resolved = calc.resolveConfig(
-                finalSnap.config() != null ? finalSnap : finalSnap.withConfig(config));
+                finalSnap.config() != null ? finalSnap : finalSnap.withConfig(configFor(finalSnap.target())));
 
         // Each knob: per-type override when set, else the global config value.
         boolean overdamage = Boolean.TRUE.equals(pick(typeCfg.overdamage(typeCtx), resolved.enableOverdamage()));
@@ -97,7 +124,7 @@ public final class DamageSystem {
             // overdamage replacement: in vanilla, when a player experiences an event that deals greater damage than what started their
             // invulnerability period, the greater source of damage "replaces" the weaker one. We do this by "making up" the difference.
             // NOTE: This CAN happen multiple times during one invulnerability window.
-            if (!overdamage) return;
+            if (!overdamage) return HitResult.BLOCKED;
             DamageEvent.OverdamageRule rule = typeCfg.overdamageRule(typeCtx);
             if (rule == null) rule = resolved.overdamageRule();
             if (rule == null) rule = DamageEvent.OverdamageRule.vanilla();
@@ -108,11 +135,12 @@ public final class DamageSystem {
                 boolean replacementSilent = odSilent != null ? odSilent : generalSilent;
                 living.setTag(LAST_DAMAGE, Math.max(event.stored(), amount)); // vanilla-equivalent highwater
                 applyDamage(living, type, finalSnap, applied, replacementSilent);
+                return HitResult.OVERDAMAGE;
             }
-            return;
+            return HitResult.BLOCKED;
         }
 
-        if (amount <= 0) return;
+        if (amount <= 0) return HitResult.BLOCKED;
 
         living.setTag(LAST_DAMAGE, amount);
         applyDamage(living, type, finalSnap, amount, generalSilent);
@@ -120,6 +148,7 @@ public final class DamageSystem {
         if (typeCfg.triggersInvul(typeCtx) && invulTicks != null && invulTicks > 0) {
             setDamageInvulnerable(living, invulTicks);
         }
+        return HitResult.FULL_HIT;
     }
 
     /** Per-type override when non-null, else the global config value (which may itself be null). */

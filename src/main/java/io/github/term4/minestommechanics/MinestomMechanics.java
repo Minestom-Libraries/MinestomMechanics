@@ -39,6 +39,7 @@ public final class MinestomMechanics {
 
     // Server level services
     private ClientInfoService clientInfo;
+    private final MechanicsProfiles profiles = new MechanicsProfiles();
 
     // Optional registry
     private @Nullable SprintTracker sprintTracker;
@@ -120,6 +121,12 @@ public final class MinestomMechanics {
         if (!initialized) throw new IllegalStateException("MinestomMechanics has not been initialized");
         return clientInfo;
     }
+
+    /**
+     * Scoped config profiles (player / instance / global). Assignable any time - including before
+     * {@link #init()} - and swappable at runtime; systems consult them per hit.
+     */
+    public MechanicsProfiles profiles() { return profiles; }
 
     /** Public node for MinestomMechanics API events */
     public EventNode<@NotNull Event> events() {

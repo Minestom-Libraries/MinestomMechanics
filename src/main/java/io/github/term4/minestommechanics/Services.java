@@ -18,5 +18,7 @@ public record Services(MinestomMechanics mm) {
     public @Nullable AttackSystem attack() { return mm.attackSystem(); }
     public @Nullable KnockbackSystem knockback() { return mm.knockbackSystem(); }
     public @Nullable DamageSystem damage() { return mm.damageSystem(); }
+    /** Scoped config profiles (player / instance / global). */
+    public MechanicsProfiles profiles() { return mm.profiles(); }
 
 }

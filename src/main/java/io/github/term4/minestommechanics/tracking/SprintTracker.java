@@ -26,13 +26,9 @@ public final class SprintTracker {
         player.setTag(LAST_SPRINT_STATE, new TickState(TickClock.now(), 0));
     }
 
-    /** Listener node that updates LAST_SPRINT_TICK. */
+    /** Listener node that stamps the sprint start/stop ticks. */
     public EventNode<@NotNull PlayerEvent> node() {
         EventNode<@NotNull PlayerEvent> node = EventNode.type("mm:sprint-tracker", EventFilter.PLAYER);
-
-        node.addListener(PlayerStopSprintingEvent.class, e -> {
-            markStopSprint(e.getPlayer());
-        });
 
         node.addListener(PlayerStartSprintingEvent.class, e -> {
             Player p = e.getPlayer();
@@ -72,7 +68,9 @@ public final class SprintTracker {
         if (t == null) return e.isSprinting();
         if (isClientSprinting(t, e)) return true;
         TickState stop = e.getTag(LAST_CLIENT_STOP_SPRINT);
-        if (stop == null) return true;
+        // Not currently sprinting (per the check above) and no stop ever recorded = never sprinted at all
+        // (e.g. fresh join) - NOT "recently sprinting".
+        if (stop == null) return false;
         return stop.isActiveWithin(ticks);
     }
 }

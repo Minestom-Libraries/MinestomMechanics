@@ -2,6 +2,7 @@ package io.github.term4.minestommechanics.tracking;
 
 import io.github.term4.minestommechanics.util.TickClock;
 import net.minestom.server.MinecraftServer;
+import net.minestom.server.collision.Aerodynamics;
 import net.minestom.server.collision.CollisionUtils;
 import net.minestom.server.collision.PhysicsResult;
 import net.minestom.server.coordinate.Pos;
@@ -18,74 +19,55 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Single authority for an entity's ground/air timeline and per-tick motion. A {@link PlayerMoveEvent}
- * listener anchors the air clock to the client's rising move-packet (the client's true jump tick), so
- * {@link #ticksInAir(Entity)} tracks the real air-time directly instead of re-simulating it. Vanilla's
- * folded {@code this.motY} is a server-side gravity re-sim seeded ~2 ticks later off the server's
- * {@code onGround} flag, which is why the knockback arc re-applies {@link VelocityRule#VANILLA_LAUNCH_OFFSET}.
- * The same listener records each move-packet delta for {@link #positionDelta(Entity)}:
+ * Single authority for an entity's ground/air timeline and per-tick motion. A {@link PlayerMoveEvent} listener
+ * anchors the air clock to the client's rising move-packet (its true jump tick) and records each move-packet
+ * delta, backing the reads {@link VelocityRule}s compose:
  * <ul>
- *   <li>{@link #ticksInAir(Entity)} - ticks since the move-packet that left the ground (drives the gravity arc),</li>
- *   <li>{@link #launched(Entity)} - whether the entity is in an upward-launched arc (jump or knockback
- *       boost) versus a ledge walk-off,</li>
- *   <li>{@link #recentJump(Entity)} - the launch stamp (yaw + sprint) for the sprint-jump impulse,</li>
- *   <li>{@link #positionDelta(Entity)} - move-delta velocity (blocks/tick), the client's last reported motion.</li>
+ *   <li>{@link #ticksInAir(Entity)} - ticks since the move-packet that left the ground (the gravity-arc clock),</li>
+ *   <li>{@link #launched(Entity)} - in an upward-launched arc (jump or knockback boost) vs a ledge walk-off,</li>
+ *   <li>{@link #recentJump(Entity)} - the launch origin (yaw, sprint, takeoff horizontal seed),</li>
+ *   <li>{@link #positionDelta(Entity)} - move-delta velocity (b/t), the client's last reported motion,</li>
+ *   <li>{@link #onGround(Entity, int)} - ground state with a configurable fall-prediction depth.</li>
  * </ul>
  *
- * <p>Ground state goes through a {@link GroundRule} ({@link #isGrounded}, {@link #isFalling}, and the air clock all
- * resolve one via {@link #resolveGroundRule}: a per-entity {@link #setGroundRule override}, else a velocity-mode's
- * {@link ArcSpec#groundRule()}, else {@link GroundRule#DEFAULT}). The default is vanilla {@code Entity.move()}
- * collision ({@link #isGroundedByCollision}: the client flag OR a server-side sweep down the client's reported
- * fall), so a laggy client that has truly landed reads grounded before its {@code onGround} packet arrives, instead
- * of the bare {@link Entity#isOnGround()} flag trailing the landing and leaving the arc reconstructing a stale
- * descent. The sweep is keyed off the reported {@link #positionDelta}, never the knockback velocity arc - ground
- * state is a position prediction, independent of the vertical KB curve.
+ * <p>Physics constants are read live (entity {@link Aerodynamics}, per-block ground friction); only the vanilla
+ * numbers Minestom does not model ({@link #SPRINT_IMPULSE}, near-zero clamp) are fixed here.
  */
 public final class MotionTracker {
 
-    /**
-     * Server tick of the client's rising move-packet (its true jump tick); the gravity-arc anchor. Vanilla's
-     * folded {@code this.motY} re-sim seeds ~2 ticks after this, hence {@link VelocityRule#VANILLA_LAUNCH_OFFSET}.
-     */
+    /** Server tick of the client's rising move-packet (its true jump tick); the gravity-arc anchor. */
     private static final Tag<Long> AIR_START_TICK = Tag.Transient("mm:air-start-tick");
     private static final Tag<Boolean> LAUNCHED = Tag.Transient("mm:launched");
     private static final Tag<Vec> MOVE_VELOCITY = Tag.Transient("mm:move-velocity");
     private static final Tag<MovePrev> MOVE_PREV = Tag.Transient("mm:move-prev");
     private static final Tag<LaunchStamp> LAUNCH_STAMP = Tag.Transient("mm:launch-stamp");
-    /** Per-entity {@link GroundRule} override, highest precedence in {@link #resolveGroundRule}; unset -> the caller's fallback. */
-    private static final Tag<GroundRule> GROUND_RULE = Tag.Transient("mm:ground-rule");
     /**
-     * Server-side horizontal {@code motX/motZ} (blocks/tick) anchored at the last ground/air transition, plus the
-     * tick and ground state it has held since. Read lazily, it bleeds by vanilla friction (air {@code x0.91},
-     * ground {@code x0.546}) over the elapsed ticks - identical to applying friction once per server tick, but
-     * computed only at the next transition instead of polling every tick. A launch folds the {@code bF()} 0.2
-     * boost onto this, so the takeoff carries the real residual (0.2 from rest, building toward ~0.248
-     * mid-bunny-hop) instead of a fixed magic number.
+     * Server-side horizontal {@code motX/motZ} (b/t) anchored at the last ground/air transition. Read lazily, it
+     * bleeds by vanilla friction (air drag, or block friction x drag on ground) over the elapsed ticks - identical
+     * to one friction step per tick, but computed only at the next transition.
      */
     private static final Tag<MotState> MOT_H = Tag.Transient("mm:mot-h");
 
-    /** Previous move-packet position + ground flag: packet-granular transition detection, and the move-delta velocity. */
+    /** Vanilla sprint-jump impulse ({@code bF()}: {@code motX -= sin(yaw)*0.2, motZ += cos(yaw)*0.2}). */
+    public static final double SPRINT_IMPULSE = 0.2;
+    /** Default {@link #onGround(Entity, int)} prediction depth: the vanilla {@code move()} 1-tick collision sweep. */
+    public static final int DEFAULT_GROUND_TICKS = 1;
+    /** Default block friction when the supporting block cannot be read (vanilla {@code 0.6}). */
+    private static final double DEFAULT_BLOCK_FRICTION = 0.6;
+
+    /** Previous move-packet position + ground flag: packet-granular transition detection + move-delta velocity. */
     private record MovePrev(double x, double y, double z, boolean onGround) {}
-    /**
-     * Launch impulse origin: server tick, facing yaw, whether sprinting at takeoff, and {@code seedH} - the
-     * actual horizontal {@code motX/motZ} (blocks/tick) at takeoff (carried ground residual + the {@code bF()}
-     * boost). The gravity arc bleeds {@code seedH} by air friction, so a hit folds in the real takeoff velocity.
-     */
-    private record LaunchStamp(long tick, double yaw, boolean sprinting, Vec seedH) {}
-    /**
-     * Server-side horizontal {@code motX/motZ} anchored at the last transition: {@code motH} as of {@code sinceTick},
-     * bleeding by air friction while {@code airborne} else ground friction. {@link #residualAt(MotState, long, Physics)}
-     * advances it to any later tick.
-     */
+    /** Launch origin: server tick, facing yaw, sprinting at takeoff, pre-boost residual, and the boosted seed. */
+    private record LaunchStamp(long tick, double yaw, boolean sprinting, Vec residualH, Vec seedH) {}
+    /** Horizontal residual as of {@code sinceTick}, bleeding by air or ground friction per the held state. */
     private record MotState(Vec motH, long sinceTick, boolean airborne) {}
 
     /**
-     * Launch origin exposed to {@link VelocityRule}s: facing yaw, whether sprinting at takeoff, and {@code seedH} -
-     * the actual horizontal {@code this.motX/motZ} (blocks/tick) at the launch tick (the bled-over ground residual
-     * plus the {@code bF()} boost). The gravity arc seeds from {@code seedH} and bleeds it by air friction, so a
-     * hit's horizontal fold matches whatever the player really took off with (0.2 from rest, ~0.248 mid-bunny-hop).
+     * Launch origin exposed to {@link VelocityRule}s. {@code seedH} is the takeoff {@code motX/motZ}: the carried
+     * {@code residualH} plus the {@link #SPRINT_IMPULSE} boost when sprinting (recompose a custom impulse from
+     * {@code residualH} + {@code yaw}).
      */
-    public record JumpInfo(double yaw, boolean sprinting, Vec seedH) {}
+    public record JumpInfo(double yaw, boolean sprinting, Vec residualH, Vec seedH) {}
 
     public MotionTracker() {}
 
@@ -97,11 +79,7 @@ public final class MotionTracker {
                 .schedule();
     }
 
-    /**
-     * Listener that anchors the air clock to the client's rising move-packet (instead of a once-per-tick
-     * scan), so {@link #ticksInAir(Entity)} counts elapsed ticks from the client's own jump tick. It tracks
-     * the real air-time; vanilla's server-side {@code this.motY} re-sim trails it by ~2 ticks.
-     */
+    /** Listener anchoring the air clock + move-delta to the client's own move packets (ping-invariant). */
     public EventNode<@NotNull PlayerEvent> node() {
         EventNode<@NotNull PlayerEvent> node = EventNode.type("mm:motion-tracker", EventFilter.PLAYER);
         node.addListener(PlayerMoveEvent.class, this::onMove);
@@ -119,20 +97,16 @@ public final class MotionTracker {
         p.setTag(MOVE_PREV, new MovePrev(newPos.x(), newPos.y(), newPos.z(), nowOnGround));
         if (prev == null) return; // need a baseline packet before a transition can be read
 
-        // Move-delta velocity (b/t) straight off the client's packets. A once-per-tick getPosition() snapshot races
-        // the hit (an attacker's packet often processes before the victim's move that tick, reading exactly 0), so
-        // instead we keep the victim's last reported motion - the ground sweep deepens by it when the client is
-        // falling faster than the reconstructed motY.
+        // Move-delta velocity (b/t) straight off the client's packets. A once-per-tick getPosition() snapshot
+        // races the hit (the attacker's packet often processes before the victim's move that tick, reading 0),
+        // so we keep the victim's last reported motion instead.
         p.setTag(MOVE_VELOCITY, new Vec(newPos.x() - prev.x(), newPos.y() - prev.y(), newPos.z() - prev.z()));
 
         boolean wasOnGround = prev.onGround();
         double dy = newPos.y() - prev.y();
 
-        // On ground (or flying): the ballistic arc is not running, so clear it. This is the PRIMARY landing
-        // anchor - it fires during interpretPacketQueue (serverTick phase) on the very packet whose onGround
-        // flips, so it re-anchors the motX residual (bled by air friction over the flight) to ground state on
-        // the exact tick the landing is processed. The tick() poll runs earlier in the cycle but on last tick's
-        // ground flag, so it only ever trails this.
+        // On ground (or flying): the ballistic arc is not running, so clear it. PRIMARY landing anchor - fires
+        // on the very packet whose onGround flips; the tick() poll only ever trails this.
         if (nowOnGround || p.isFlying()) {
             if (nowOnGround) freezeOnLanding(p, now);
             p.removeTag(AIR_START_TICK);
@@ -141,10 +115,9 @@ public final class MotionTracker {
         }
 
         if (wasOnGround) {
-            // Ground -> air: the client's rising packet = its true jump tick. Anchor the arc's tick-zero here and
-            // fold the 0.2 boost onto the maintained motX residual. (The arc's one-tick VANILLA_LAUNCH_OFFSET is an
-            // intra-tick packet-ordering phase - the hit is processed before the victim's move packet that tick - not
-            // a server-side motY re-sim; vanilla folds this.motY directly and restores it after, see EntityHuman.attack.)
+            // Ground -> air: the client's rising packet = its true jump tick; anchor the arc's tick-zero here.
+            // (The arc's launchOffset is an intra-tick packet-ordering phase - the hit is processed before the
+            // victim's move packet that tick - see VelocityConfig.DEFAULT_LAUNCH_OFFSET.)
             if (dy > 0) latchLaunch(p, now, newPos.yaw()); // rising = launched, else walk-off
             p.setTag(AIR_START_TICK, now);
         } else {
@@ -155,60 +128,64 @@ public final class MotionTracker {
     }
 
     /**
-     * Latches a launch: folds the {@code bF()} 0.2 boost onto the {@code motX} residual (the anchored value bled
-     * by friction up to {@code now} - ground friction if grounded since landing, air friction for a mid-air
-     * re-launch) and freezes that as the takeoff seed the gravity arc bleeds. So the seed is 0.2 off a standstill
-     * and builds toward ~0.248 mid-bunny-hop, then re-anchors as airborne for the new flight.
+     * Latches a launch: folds the {@link #SPRINT_IMPULSE} boost onto the friction-bled {@code motX} residual and
+     * freezes that as the takeoff seed the gravity arc bleeds, then re-anchors as airborne for the new flight.
      */
     private static void latchLaunch(Player p, long now, double yaw) {
-        Physics ph = Physics.fromEntity(p);
         boolean sprinting = p.isSprinting();
-        Vec residual = residualAt(p.getTag(MOT_H), now, ph);
-        Vec boost = sprinting ? ph.sprintJumpImpulse(yaw) : Vec.ZERO;
+        Vec residual = residualAt(p, p.getTag(MOT_H), now);
+        Vec boost = sprinting ? sprintJumpImpulse(yaw) : Vec.ZERO;
         Vec seedH = residual.add(boost);
         p.setTag(MOT_H, new MotState(seedH, now, true));
         p.setTag(LAUNCHED, true);
-        p.setTag(LAUNCH_STAMP, new LaunchStamp(now, yaw, sprinting, seedH));
+        p.setTag(LAUNCH_STAMP, new LaunchStamp(now, yaw, sprinting, residual, seedH));
+    }
+
+    /** Vanilla {@code bF()} sprint-jump horizontal impulse for a facing yaw (b/t). */
+    private static Vec sprintJumpImpulse(double yaw) {
+        double r = Math.toRadians(yaw);
+        return new Vec(-Math.sin(r) * SPRINT_IMPULSE, 0, Math.cos(r) * SPRINT_IMPULSE);
     }
 
     /**
-     * The anchored residual bled forward to {@code now}: {@code motH x friction^(now - sinceTick)}, friction
-     * being air ({@code x0.91}) or ground ({@code x0.546}) per the held state, then vanilla's near-zero clamp.
-     * Equivalent to one friction step (and {@code m()} clamp) per server tick, but evaluated lazily at the next
-     * transition instead of polling every tick.
+     * The anchored residual bled forward to {@code now}: {@code motH x friction^(now - sinceTick)}, friction being
+     * the live air drag, or block friction x drag on ground (vanilla reads the block under the player - default
+     * {@code 0.6}, ice {@code 0.98}), then vanilla's {@code m()} near-zero clamp so a stale residual snaps to 0.
      */
-    private static Vec residualAt(MotState s, long now, Physics ph) {
+    private static Vec residualAt(Player p, MotState s, long now) {
         if (s == null) return Vec.ZERO;
         int ticks = (int) Math.max(0, now - s.sinceTick());
-        double friction = s.airborne() ? ph.horizontalAirResistance() : ph.groundFriction();
+        double hDrag = p.getAerodynamics().horizontalAirResistance();
+        double friction = s.airborne() ? hDrag : blockFriction(p) * hDrag;
         Vec decayed = s.motH().mul(Math.pow(friction, ticks));
-        // Vanilla m() zeroes motX/motZ < 0.005 each tick; for a monotonically-bleeding residual that is the same
-        // as clamping the final value per component, so a stale residual snaps to 0 (vanilla 0.00748 -> 0) rather
-        // than trailing dust (0.004 -> 0.0004 -> ...) into the next seed.
-        return new Vec(Math.abs(decayed.x()) < ph.clampX() ? 0.0 : decayed.x(), 0,
-                Math.abs(decayed.z()) < ph.clampZ() ? 0.0 : decayed.z());
+        double clamp = VelocityConfig.CLAMP;
+        return new Vec(Math.abs(decayed.x()) < clamp ? 0.0 : decayed.x(), 0,
+                Math.abs(decayed.z()) < clamp ? 0.0 : decayed.z());
+    }
+
+    /** Friction of the block under the player (vanilla {@code frictionFactor}; what {@code PhysicsUtils} reads). */
+    private static double blockFriction(Player p) {
+        var instance = p.getInstance();
+        if (instance == null) return DEFAULT_BLOCK_FRICTION;
+        return instance.getBlock(p.getPosition().sub(0, 0.5000001, 0)).registry().friction();
     }
 
     /**
      * At an air-&gt;ground transition, re-anchor the residual as grounded: bleed the airborne value to {@code now}
-     * (one air-friction step per flight tick) and stamp it ground state so the gap to the next jump bleeds by
-     * ground friction. A no-op if already grounded.
+     * and stamp it ground state so the gap to the next jump bleeds by ground friction. No-op if already grounded.
      */
     private static void freezeOnLanding(Player p, long now) {
         MotState s = p.getTag(MOT_H);
         if (s == null || !s.airborne()) return;
-        p.setTag(MOT_H, new MotState(residualAt(s, now, Physics.fromEntity(p)), now, false));
+        p.setTag(MOT_H, new MotState(residualAt(p, s, now), now, false));
     }
 
     private void tick() {
         for (Player p : MinecraftServer.getConnectionManager().getOnlinePlayers()) {
-            boolean onGround = p.isOnGround();
-            // FALLBACK only, and deliberately a tick behind: this scheduler task runs in processTick(), before
-            // serverTick() drains move packets, so onGround here reflects the PREVIOUS tick - the onMove landing
-            // branch (running in packet processing) always anchors a real landing first. This catches the
-            // leftovers onMove never sees (status-only onGround packets with no PlayerMoveEvent). freezeOnLanding
-            // is idempotent, so it no-ops whenever onMove already anchored.
-            if (onGround) {
+            // FALLBACK only, and deliberately a tick behind: this scheduler task runs before serverTick() drains
+            // move packets, so the onMove landing branch always anchors a real landing first. This catches the
+            // leftovers onMove never sees (status-only onGround packets with no PlayerMoveEvent).
+            if (p.isOnGround()) {
                 freezeOnLanding(p, TickClock.now());
                 p.removeTag(AIR_START_TICK);
                 p.removeTag(LAUNCHED);
@@ -217,10 +194,8 @@ public final class MotionTracker {
     }
 
     /**
-     * Ticks since the client's rising move-packet (the gravity-arc clock) - elapsed-tick counting from the
-     * client's true jump tick, so it is ping-invariant and matches the client's own air-tick count. 0 when on
-     * the ground or with no air anchor. Vanilla's folded {@code this.motY} re-sim trails this by ~2 ticks
-     * ({@link VelocityRule#VANILLA_LAUNCH_OFFSET}).
+     * Ticks since the client's rising move-packet (the gravity-arc clock) - counted from the client's own jump
+     * tick, so it is ping-invariant. 0 when on the ground or with no air anchor.
      */
     public static int ticksInAir(Entity entity) {
         if (entity == null) return 0;
@@ -230,23 +205,21 @@ public final class MotionTracker {
     }
 
     /**
-     * Whether the entity is in an upward-launched arc (a jump or a knockback boost) rather than a ledge
-     * walk-off. Latched true on any upward motion while airborne - so it survives the descending half of
-     * the arc and covers mid-air re-launches - and cleared when the entity lands or starts flying. A plain
-     * walk-off never rises, so it stays unlaunched.
+     * Whether the entity is in an upward-launched arc (jump or knockback boost) rather than a ledge walk-off.
+     * Latched on any upward motion while airborne, cleared on landing or flight.
      */
     public static boolean launched(Entity entity) {
         return entity instanceof Player p && Boolean.TRUE.equals(p.getTag(LAUNCHED));
     }
 
-    /** Launch origin (yaw + sprint + takeoff horizontal seed) while in a launch arc, or {@code null}. */
+    /** Launch origin (yaw + sprint + takeoff horizontal residual/seed) while in a launch arc, or {@code null}. */
     public static @Nullable JumpInfo recentJump(Entity entity) {
         if (!(entity instanceof Player p) || !launched(p)) return null;
         LaunchStamp s = p.getTag(LAUNCH_STAMP);
-        return s == null ? null : new JumpInfo(s.yaw(), s.sprinting(), s.seedH());
+        return s == null ? null : new JumpInfo(s.yaw(), s.sprinting(), s.residualH(), s.seedH());
     }
 
-    /** Move-delta velocity (blocks/tick) from the client's packets; players via {@link #MOVE_VELOCITY}, others via entity velocity. */
+    /** Move-delta velocity (b/t) from the client's packets; players via the per-move snapshot, others via entity velocity. */
     public static Vec positionDelta(Entity entity) {
         if (entity instanceof Player p) {
             Vec d = p.getTag(MOVE_VELOCITY);
@@ -255,135 +228,60 @@ public final class MotionTracker {
         return entity.getVelocity();
     }
 
-    /**
-     * Sets (or with {@code null} clears) a per-entity {@link GroundRule} override. It is the highest-precedence
-     * source in {@link #resolveGroundRule}, so it wins over any velocity-mode {@link ArcSpec#groundRule()} and the
-     * {@link GroundRule#DEFAULT} - the runtime knob for forcing one entity onto, e.g., {@link GroundRule#CLIENT}.
-     */
-    public static void setGroundRule(@NotNull Entity entity, @Nullable GroundRule rule) {
-        if (rule == null) entity.removeTag(GROUND_RULE);
-        else entity.setTag(GROUND_RULE, rule);
+    /** {@link #onGround(Entity, int)} with the {@link #DEFAULT_GROUND_TICKS default} 1-tick sweep. */
+    public static boolean onGround(@Nullable Entity entity) {
+        return onGround(entity, DEFAULT_GROUND_TICKS);
     }
 
     /**
-     * Resolves the effective {@link GroundRule} for {@code entity}: a per-entity {@link #setGroundRule override}
-     * wins, else {@code fallback} (e.g. a velocity-mode's {@link ArcSpec#groundRule()}), else {@link GroundRule#DEFAULT}.
+     * Whether the entity is on the ground, with {@code ticks} of server-side fall prediction:
+     * <ul>
+     *   <li>{@code 0} - the raw client-reported {@link Entity#isOnGround()} flag (lags behind a laggy client's
+     *       true landing),</li>
+     *   <li>{@code >= 1} - the flag OR a collision sweep down the victim's predicted fall, mirroring vanilla
+     *       {@code Entity.move()}'s {@code verticalCollisionBelow}: the probe descends {@code ticks}
+     *       gravity-stepped ticks seeded from the client's reported {@link #positionDelta} (floored at one
+     *       gravity step so a resting victim still registers), and reports whether a block clamps it. {@code 1}
+     *       is the vanilla-faithful default - it stays correct while a laggy client's {@code onGround} packet is
+     *       in flight.</li>
+     * </ul>
+     * A victim whose reported motion is rising is never swept grounded (vanilla {@code delta.y < 0}). The probe is
+     * a pure <em>position</em> prediction off the reported motion - never the reconstructed knockback arc - so a
+     * juggled victim's deep air clock cannot ground it mid-air. Non-players use the server flag directly.
+     * Each {@code ticks >= 1} call runs a collision sweep; query it per hit/event, not per tick for every player.
      */
-    public static GroundRule resolveGroundRule(@Nullable Entity entity, @Nullable GroundRule fallback) {
-        if (entity != null) {
-            GroundRule tagged = entity.getTag(GROUND_RULE);
-            if (tagged != null) return tagged;
-        }
-        return fallback != null ? fallback : GroundRule.DEFAULT;
-    }
+    // TODO: possible future overload onGround(entity, ticks, maxDist) - cap how far down the sweep may find
+    //  ground - and a custom predicate interface if a real use case appears.
+    public static boolean onGround(@Nullable Entity entity, int ticks) {
+        if (entity == null) return false;
+        if (ticks <= 0 || !(entity instanceof Player)) return entity.isOnGround();
+        if (entity.isOnGround()) return true;
+        if (entity.getInstance() == null) return false;
 
-    /**
-     * Whether the entity is on the ground per its resolved {@link GroundRule} ({@link #resolveGroundRule} with no
-     * caller fallback: a per-entity override, else {@link GroundRule#DEFAULT}). The default is vanilla
-     * {@code Entity.move()} collision, so a laggy victim that has truly landed reads grounded even before its
-     * {@code onGround} packet arrives - not the bare {@link Entity#isOnGround()} flag.
-     */
-    public static boolean isGrounded(@Nullable Entity entity) {
-        return resolveGroundRule(entity, null).isOnGround(entity);
-    }
-
-    /**
-     * Server-side ground test mirroring vanilla {@code Entity.move()}: it sweeps the player's bounding box down by
-     * its reported fall and reports whether a block clamps that descent - vanilla's
-     * {@code verticalCollisionBelow = (delta.y != collide(delta).y) && delta.y < 0}. The sweep magnitude is the
-     * client's reported {@link #positionDelta} (the real move-delta), floored at {@code floor} (one gravity step) and
-     * plus {@code margin}. This is a <em>position</em> prediction, deliberately independent of the knockback velocity
-     * arc ({@link #predictedFallVy}) - keying it off the reconstructed fall would let a juggled victim's deep air-clock
-     * value ground them metres up (float), then reset the clock and re-pop them forever. Reading the server's own
-     * position + world geometry, it still catches a laggy victim that has truly landed while its {@code onGround}
-     * packet is in flight (the case the bare {@link Entity#isOnGround()} flag misses), at least to within the reported
-     * fall depth. A victim whose reported motion is rising ({@code positionDelta.y > 0}) is never grounded (vanilla
-     * {@code delta.y < 0}). Non-players fall through to {@link Entity#isOnGround()}. {@code floor}/{@code margin} are
-     * magnitudes (downward).
-     */
-    public static boolean isGroundedByCollision(@Nullable Entity entity, double floor, double margin) {
-        if (entity == null || entity.getInstance() == null) return false;
-        if (!(entity instanceof Player)) return entity.isOnGround(); // server physics is authoritative for these
-        return groundedBySweep(entity, floor, margin);
-    }
-
-    /**
-     * {@link #isGroundedByCollision(Entity, double, double)} with the probe knobs taken from {@code spec}: its
-     * {@link GroundSpec#floor()} ({@code null} -> one gravity step, {@code gravity * verticalAirResistance}, from the
-     * spec's {@link GroundSpec#physics()} else the entity's live physics) and {@link GroundSpec#margin()}. This is
-     * what {@link GroundRule#collision(GroundSpec)} sweeps with.
-     */
-    public static boolean isGroundedByCollision(@Nullable Entity entity, @NotNull GroundSpec spec) {
-        if (entity == null || entity.getInstance() == null) return false;
-        if (!(entity instanceof Player)) return entity.isOnGround(); // server physics is authoritative for these
-        Physics ph = spec.physics() != null ? spec.physics() : Physics.fromEntity(entity);
-        double floor = spec.floor() != null ? spec.floor() : ph.gravity() * ph.verticalAirResistance();
-        return groundedBySweep(entity, floor, spec.margin());
-    }
-
-    /**
-     * The downward box sweep behind {@link #isGroundedByCollision}: descend by the client's reported
-     * {@link #positionDelta} fall, at least {@code floor} and plus {@code margin}, and report whether a block clamps
-     * it. Bails when the reported motion is rising (jump / boost), never grounded (vanilla {@code delta.y < 0}). The
-     * probe is the <em>reported</em> fall only - never {@link #predictedFallVy} - so ground state stays a pure
-     * position prediction, decoupled from the vertical KB curve. Caller has already ruled out null/non-players.
-     */
-    private static boolean groundedBySweep(Entity entity, double floor, double margin) {
         double dy = positionDelta(entity).y();
-        if (dy > 0) return false; // reported motion rising (jump / boost) - never grounded (vanilla delta.y < 0)
-        double probe = Math.min(dy, -Math.abs(floor)) - Math.abs(margin);
+        if (dy > 0) return false; // reported motion rising (jump / boost) - never grounded
+        Aerodynamics aero = entity.getAerodynamics();
+        double g = aero.gravity();
+        double s = aero.verticalAirResistance();
+        double vy = Math.min(dy, -g * s); // floor: a resting victim still probes one gravity step
+        double probe = 0;
+        for (int i = 0; i < ticks; i++) {
+            probe += vy;
+            vy = (vy - g) * s;
+        }
         PhysicsResult r = CollisionUtils.handlePhysics(entity, new Vec(0, probe, 0));
         return r.isOnGround();
     }
 
     /**
-     * Reconstructed vertical fall velocity (the {@link VelocityRule} arc's vertical seed) for the entity's current
-     * air-time - closed-form free-fall {@code v0*s^t - g*s*(1 - s^t)/(1 - s)} seeded at {@link Physics#jumpVelocity()}
-     * when {@link #launched} (over {@code ticksInAir + }{@link VelocityRule#VANILLA_LAUNCH_OFFSET}) else from rest
-     * (over {@code ticksInAir + 1}), clamped to {@code [terminalVy, jumpVelocity]}. The air clock free-runs through a
-     * combo (never re-anchored per hit), so this is the curve the vertical knockback folds. <strong>Not</strong> used
-     * for ground detection - that is a separate position prediction ({@link #groundedBySweep}).
-     */
-    private static double predictedFallVy(Entity entity, Physics ph) {
-        boolean launched = launched(entity);
-        int ticks = launched ? ticksInAir(entity) + VelocityRule.VANILLA_LAUNCH_OFFSET : ticksInAir(entity) + 1;
-        double g = ph.gravity();
-        double s = ph.verticalAirResistance();
-        double v0 = launched ? ph.jumpVelocity() : 0.0;
-        double vy;
-        if (ticks <= 0) {
-            vy = -g * s;
-        } else {
-            double sp = Math.pow(s, ticks);
-            vy = v0 * sp - g * s * (1 - sp) / (1 - s);
-        }
-        return Math.max(ph.terminalVy(), Math.min(ph.jumpVelocity(), vy));
-    }
-
-    /**
-     * {@link #predictedFallVy(Entity, Physics)} seeded from the entity's live physics: the reconstructed fall the
-     * velocity arc folds for the entity's current air-time, exposed for diagnostics/logging. Compare it against
-     * {@link #positionDelta} (the real move-delta) to see how far the folded fall has diverged from the victim's
-     * actual reported motion.
-     */
-    public static double predictedFallVy(@Nullable Entity entity) {
-        if (entity == null) return 0;
-        return predictedFallVy(entity, Physics.fromEntity(entity));
-    }
-
-    /**
-     * Whether the entity is falling: airborne (per its resolved {@link GroundRule}, so a laggy victim that has truly
-     * landed is not "falling") and descending. Vertical motion comes from {@link #positionDelta(Entity)}
-     * (position-delta) for players, since Minestom's server-side {@code getVelocity()} does not reflect a player's
-     * client-driven up/down motion.
-     *
-     * <p>A flying player is never falling, even when moving downward. Other states where a player
-     * cannot be falling are not handled here yet (TODO): in water, and climbing (on a ladder/vine).
+     * Whether the entity is falling: airborne per {@link #onGround(Entity)} (so a laggy victim that has truly
+     * landed is not "falling") and descending per {@link #positionDelta} (server-side {@code getVelocity()} does
+     * not reflect a player's client-driven motion). A flying player is never falling.
      */
     public static boolean isFalling(@Nullable Entity entity) {
         if (entity == null) return false;
         if (entity instanceof Player p && p.isFlying()) return false;
-        if (isGrounded(entity)) return false;
+        if (onGround(entity)) return false;
         // TODO: also not falling while in water, climbing (ladder/vine), cobweb, and maybe other.
         return positionDelta(entity).y() < 0;
     }

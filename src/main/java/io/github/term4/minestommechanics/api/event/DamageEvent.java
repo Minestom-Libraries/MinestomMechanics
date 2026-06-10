@@ -6,7 +6,7 @@ import io.github.term4.minestommechanics.mechanics.damage.DamageSystem;
 import io.github.term4.minestommechanics.mechanics.damage.types.DamageType;
 import net.minestom.server.entity.Entity;
 import net.minestom.server.entity.LivingEntity;
-import net.minestom.server.event.Event;
+import net.minestom.server.event.trait.CancellableEvent;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -14,7 +14,7 @@ import org.jetbrains.annotations.Nullable;
  * {@link DamageSnapshot} and follows the same shape as {@link KnockbackEvent}: an immutable
  * original {@link #snapshot()} plus a mutable {@link #finalSnap()} used for application.
  */
-public final class DamageEvent implements Event {
+public final class DamageEvent implements CancellableEvent {
 
     private final DamageSnapshot snap;
     private @Nullable DamageSnapshot finalSnap;
@@ -51,10 +51,15 @@ public final class DamageEvent implements Event {
     public float amount() { return amount; }
     public void amount(float amount) { this.amount = amount; }
 
-    /** Damage config used for resolution. Override by setting {@link #finalSnap(DamageSnapshot)} with a new config. */
+    /** Damage config used for resolution ({@code null} = the system config). */
     public @Nullable DamageConfig config() { return finalSnap().config(); }
 
+    /** Replaces the config used for resolution for this hit (sugar for rebuilding {@link #finalSnap()}). */
+    public void config(@Nullable DamageConfig config) { finalSnap(finalSnap().withConfig(config)); }
+
+    /** Whether the target was inside its damage-invul window when this hit arrived. */
     public boolean invulnerable() { return invulnerable; }
+    /** Remaining ticks of the target's damage-invul window ({@code 0} when not invulnerable). */
     public int remainingInvul() { return remainingInvul; }
 
     /**
@@ -68,14 +73,16 @@ public final class DamageEvent implements Event {
     /** Apply damage even if the target is invulnerable. */
     public void bypassInvul(boolean bypass) { this.bypassInvul = bypass; }
 
-    public boolean cancelled() { return cancelled; }
-    /** Cancel the damage event. */
-    public void cancel() { this.cancelled = true; }
-
     // delegating accessors
     public DamageType type() { return finalSnap().type(); }
     public Entity target() { return finalSnap().target(); }
     public @Nullable Entity source() { return finalSnap().source(); }
+
+    /** Cancel the damage. */
+    public void cancel() { setCancelled(true); }
+
+    @Override public boolean isCancelled() { return cancelled; }
+    @Override public void setCancelled(boolean cancel) { this.cancelled = cancel; }
 
     /**
      * Defines the 1.8 "overdamage" (damage-replacement) behavior: when a hit lands while the target is

@@ -4,7 +4,6 @@ import io.github.term4.minestommechanics.MinestomMechanics;
 import io.github.term4.minestommechanics.Vanilla18;
 import io.github.term4.minestommechanics.mechanics.attack.AttackSystem;
 import io.github.term4.minestommechanics.mechanics.damage.DamageSystem;
-import io.github.term4.minestommechanics.mechanics.knockback.KnockbackCalculator;
 import io.github.term4.minestommechanics.mechanics.knockback.KnockbackSystem;
 import io.github.term4.minestommechanics.platform.player.OptimizedPlayer;
 import test.presets.Hypixel;
@@ -25,7 +24,6 @@ import net.minestom.server.instance.block.Block;
 import net.minestom.server.item.ItemStack;
 import net.minestom.server.item.Material;
 import net.minestom.server.timer.TaskSchedule;
-import test.presets.Minemen;
 
 public class ExampleServer {
     /** Debug: default simulated inbound packet latency (ticks) applied to the test account below. ~300ms @ 20 TPS. */
@@ -62,10 +60,6 @@ public class ExampleServer {
         // Enable ViaVersion proxy details
         mm.viaProxyDetails = true;
         mm.init();
-
-        // Debug: log each knockback hit's victim ground state (resolved rule vs client flag vs collision probe) +
-        // folded vertical velocity, so air-vs-ground knockback under /lag can be read off the console.
-        KnockbackCalculator.DEBUG_GROUND = true;
 
         // Debug (temporary): melee hits flash + knock back + open invul like normal, but deal no net health - so a
         // victim can be float-tested indefinitely without dying.

@@ -1,21 +1,28 @@
 package test.presets;
 
 import io.github.term4.minestommechanics.Vanilla18;
+import io.github.term4.minestommechanics.api.event.AttackEvent;
 import io.github.term4.minestommechanics.mechanics.attack.AttackConfig;
 import io.github.term4.minestommechanics.mechanics.damage.DamageConfig;
+import io.github.term4.minestommechanics.mechanics.damage.DamageSystem;
 import io.github.term4.minestommechanics.mechanics.knockback.KnockbackConfig;
 import io.github.term4.minestommechanics.mechanics.knockback.KnockbackConfigResolver;
 import io.github.term4.minestommechanics.mechanics.knockback.KnockbackComponent;
-import io.github.term4.minestommechanics.tracking.ArcSpec;
-import io.github.term4.minestommechanics.tracking.Physics;
 import io.github.term4.minestommechanics.tracking.SprintTracker;
+import io.github.term4.minestommechanics.tracking.VelocityConfig;
 import io.github.term4.minestommechanics.tracking.VelocityContext;
 import io.github.term4.minestommechanics.tracking.VelocityRule;
 import io.github.term4.minestommechanics.util.Directions;
+import net.minestom.server.MinecraftServer;
 import net.minestom.server.coordinate.Vec;
 import net.minestom.server.entity.Entity;
-import net.minestom.server.entity.Player;
+import net.minestom.server.entity.LivingEntity;
+import net.minestom.server.timer.TaskSchedule;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 // TODO: Try with piecewise function of some sort
 
@@ -23,12 +30,71 @@ public final class Minemen {
     // TODO: Disable damage override when both the initial damage and replacement damage are melee dealt with the same item.
     private Minemen() {}
 
-    /** Returns AttackConfig based on Vanilla18 with a 1-tick hit queue buffer against the damage invul window. */
+    /** Returns AttackConfig based on Vanilla18, processed through the {@link #attackProcessor() Minemen ruleset}. */
     public static AttackConfig atk() {
         return AttackConfig.builder(Vanilla18.atk())
-                .hitQueueBuffer(1)
-                .hitQueueInvulSource(AttackConfig.HitQueueInvulSource.DAMAGE)
+                .ruleset(attackProcessor())
                 .build();
+    }
+
+    /**
+     * Minemen attack processing: vanilla legacy combat behind a {@link #HIT_QUEUE_BUFFER 1-tick} hit queue
+     * against the damage-invul window - a hit landing within the last tick of the target's window is buffered
+     * (last-wins per target, collapsing high-ping bursts) and applied the moment the window expires, instead of
+     * being eaten by it. TODO(swing-hits): arm-swing-animation hits (swing packet -> raytrace + obstacle check
+     * -> emulated attack, hit-distance logging) belong here too, not in AttackConfig.
+     */
+    public static AttackEvent.AttackRule.Ruleset attackProcessor() {
+        return services -> {
+            ensureQueueTask();
+            AttackEvent.AttackRule vanilla = Vanilla18.legacyAttack().create(services);
+            return event -> {
+                if (event.target() instanceof LivingEntity le) {
+                    if (!event.bypassInvul()
+                            && DamageSystem.isInvulnerableToDamage(le)
+                            && DamageSystem.remainingDamageInvulTicks(le) <= HIT_QUEUE_BUFFER) {
+                        pendingHit.put(le, new PendingHit(event, vanilla));
+                        return;
+                    }
+                    // Drain an already-expired queued hit first so the older hit lands before this one.
+                    flushPending(le);
+                }
+                vanilla.processAttack(event);
+            };
+        };
+    }
+
+    /** Buffer window (ticks): hits this close to the end of the damage-invul window queue instead of dropping. */
+    private static final int HIT_QUEUE_BUFFER = 1;
+    /** At most one pending buffered hit per target, applied as a fresh hit when its window expires. */
+    private static final Map<LivingEntity, PendingHit> pendingHit = new ConcurrentHashMap<>();
+    private static final AtomicBoolean queueTaskStarted = new AtomicBoolean();
+
+    /** A buffered hit: the fired event plus the processing rule to apply it with on flush. */
+    private record PendingHit(AttackEvent event, AttackEvent.AttackRule rule) {}
+
+    private static void ensureQueueTask() {
+        if (!queueTaskStarted.compareAndSet(false, true)) return;
+        MinecraftServer.getSchedulerManager()
+                .buildTask(Minemen::flushExpired)
+                .repeat(TaskSchedule.tick(1))
+                .schedule();
+    }
+
+    private static void flushExpired() {
+        for (LivingEntity target : pendingHit.keySet()) {
+            if (target.isRemoved()) pendingHit.remove(target);
+            else flushPending(target);
+        }
+    }
+
+    /** Applies the pending hit for {@code le} once its window has expired, claiming the slot atomically. */
+    private static void flushPending(LivingEntity le) {
+        PendingHit p = pendingHit.get(le);
+        if (p == null) return;
+        if (DamageSystem.isInvulnerableToDamage(le)) return; // window still open
+        if (!pendingHit.remove(le, p)) return; // claimed elsewhere
+        p.rule().processAttack(p.event());
     }
 
     /** Returns DamageConfig based on Vanilla18 with overdamage enabled and applied silently (no hurt animation). */
@@ -48,18 +114,13 @@ public final class Minemen {
                 .extraHorizontal(0.3271)
                 .extraVertical(0.0)
                 .verticalBounds(0.050, VERTICAL_CAP)
-                .verticalLaunchHold(-VANILLA.jumpVelocity()) // -0.42 = -jumpVelocity: cap holds through air-tick 5, releases into decay at tick 6 (walk-off feeds v6)
                 .yawWeight(0.5)
                 .extraYawWeight(0.5)
                 .frictionH(0.0)
                 .frictionV(VERTICAL_FRIC) // = N*drag (base = CAP + g/N): exact wire-shorts over no-jump ticks 6-41 + jump ticks 13-19
-                                        // TODO Either change base rr formula in calculator to the nnew one, or add a custom module
-                                        // ALSO rr needs to happen after, so maybe add an ordering method to kb configs? We could
-                                        // just append after, but then whenever we want custom modules it'll be annoying to use rr.
-                .rangeStartExtraH(3.0) //
-                .rangeFactorExtraH(0.35) //
-                .rangeMaxH(0.3797) //
+                .addCustomComponent(Minemen::verticalLaunchHold)
                 .addCustomComponent(Minemen::axialFriction)
+                .addCustomComponent(Minemen::rangeReduction) // after axial drag, on the final vector
                 .build();
     }
 
@@ -69,11 +130,10 @@ public final class Minemen {
      * to the cap at the first gravity tick, so {@code frictionV = N*drag} and {@code base = CAP + gravity/N}.
      * N = 7 is the only integer reproducing the empirical wire-shorts (no-jump ticks 6-41, jump 13-19) exactly.
      */
-    private static final Physics VANILLA = Physics.vanilla();
     private static final int VERTICAL_DECAY_N = 7;
     private static final double VERTICAL_CAP = 0.3614;
-    private static final double VERTICAL_BASE = VERTICAL_CAP + VANILLA.gravity() / VERTICAL_DECAY_N;        // 0.3728286
-    private static final double VERTICAL_FRIC = VERTICAL_DECAY_N * VANILLA.verticalAirResistance();         // 6.86
+    private static final double VERTICAL_BASE = VERTICAL_CAP + VelocityConfig.GRAVITY / VERTICAL_DECAY_N;   // 0.3728286
+    private static final double VERTICAL_FRIC = VERTICAL_DECAY_N * VelocityConfig.DRAG_V;                   // 6.86
 
     /** Recent-sprint window (ticks) for both the sprint knockback and the axial drag's victim gate. */
     private static final int SPRINT_BUFFER = 8;
@@ -88,10 +148,7 @@ public final class Minemen {
      * is inert for friction (Minemen's {@code frictionH = 0}); it rides along only as the axial drag's speed source.
      */
     private static final VelocityRule VICTIM_VEL = VelocityRule.split(Minemen::sprintVel,
-            VelocityRule.simulated(ArcSpec.builder()
-                    .verticalStyle(VelocityRule.ArcStyle.PER_TICK)
-                    .launchOffset(VelocityRule.VANILLA_LAUNCH_OFFSET)
-                    .build()));
+            VelocityRule.simulated()); // vanilla defaults: PER_TICK vertical, launch offset -1
 
     /**
      * Quantized victim sprint velocity: the flat sprint-jump {@link #SPRINT_JUMP_IMPULSE} along the victim's facing
@@ -102,6 +159,25 @@ public final class Minemen {
         return ctx.wasClientRecentlySprinting(SPRINT_BUFFER)
                 ? Directions.fromYaw(ctx.entity().getPosition().yaw()).mul(SPRINT_JUMP_IMPULSE)
                 : Vec.ZERO;
+    }
+
+    /** Cap-hold release threshold (b/t): the fold's vertical must fall below this before the cap releases. */
+    private static final double VERTICAL_HOLD_RELEASE = -VelocityConfig.JUMP_VELOCITY; // -0.42: holds through air-tick 5, releases into decay at tick 6 (walk-off feeds v6)
+
+    /**
+     * Minemen vertical launch cap-hold: while the victim's launch arc is still rising / barely falling (the
+     * {@link #VICTIM_VEL reconstructed} vertical velocity above {@link #VERTICAL_HOLD_RELEASE}), vertical knockback
+     * is pinned to {@link #VERTICAL_CAP} instead of being sagged by the friction term - what makes a jump's cap
+     * hold longer than a walk-off's. Releases into the normal {@code base + v/frictionV} decay once the fall
+     * builds past the threshold.
+     */
+    @Nullable
+    private static Vec verticalLaunchHold(KnockbackConfigResolver.KnockbackContext ctx, Vec kb) {
+        Entity target = ctx.snap().target();
+        if (target == null) return null;
+        double vy = VICTIM_VEL.estimate(VelocityContext.of(target, ctx.services().sprintTracker())).y();
+        if (vy <= VERTICAL_HOLD_RELEASE) return null;
+        return new Vec(kb.x(), VERTICAL_CAP, kb.z());
     }
 
     /**
@@ -119,7 +195,7 @@ public final class Minemen {
      * attacker adds ({@code ~0.8545 -> ~0.9495}), fleeing subtracts ({@code ~0.8545 -> ~0.7595}).
      */
     @Nullable
-    private static Vec axialFriction(KnockbackConfigResolver.KnockbackContext ctx) {
+    private static Vec axialFriction(KnockbackConfigResolver.KnockbackContext ctx, Vec kb) {
         var snap = ctx.snap();
         Entity attacker = snap.source();
         Entity target = snap.target();
@@ -149,46 +225,34 @@ public final class Minemen {
          */
 
         double sign = vel.dot(axis) <= 0 ? 1.0 : -1.0;
-        return axis.mul(sign * AXIAL_iFH * speed);
+        return kb.add(axis.mul(sign * AXIAL_iFH * speed));
     }
 
-    /** Returns ping-based rangeStart value, or null if source is not a Player. */
-    @Nullable
-    private static Double startFromPing(KnockbackConfigResolver.KnockbackContext ctx) {
-        if (ctx.snap().source() instanceof Player attacker) {
-            double aPing = attacker.getLatency();
-            double scale = aPing / 200;
-            double value = 3.75 - scale * 0.75;
-            System.out.println(value);
-            return value;  // tune these values
-        }
-        return null;
-    }
+    /** Range limit line: max horizontal KB (b/t) = {@link #RANGE_LIMIT_BASE} - distance x {@link #RANGE_FACTOR}. */
+    private static final double RANGE_LIMIT_BASE = 2.0;
+    private static final double RANGE_FACTOR = 0.35;
 
-    /** Returns ping-based rangeFactor value, or null if source is not a Player. */
+    /**
+     * Minemen range reduction - a linear <em>limit</em> on knockback by distance, not a scale-down: the
+     * horizontal magnitude of the final vector is capped at {@code RANGE_LIMIT_BASE - distance * RANGE_FACTOR}
+     * (floored at 0), so close hits are untouched and far-reach hits cannot exceed the line. Runs after
+     * {@link #axialFriction} on the final vector; direction and vertical are preserved.
+     */
     @Nullable
-    private static Double factorFromPing(KnockbackConfigResolver.KnockbackContext ctx) {
-        if (ctx.snap().source() instanceof Player attacker) {
-            double aPing = attacker.getLatency();
-            double scale = aPing / 200;
-            double value = 0.433 - scale * 0.2;
-            System.out.println(value);
-            return value;  // tune these values
-        }
-        return null;
-    }
+    private static Vec rangeReduction(KnockbackConfigResolver.KnockbackContext ctx, Vec kb) {
+        var snap = ctx.snap();
+        Entity attacker = snap.source();
+        Entity target = snap.target();
+        if (attacker == null || target == null || !snap.cause().isMelee()) return null;
 
-    /** Returns ping-based rangeMax value, or null if source is not a Player. */
-    @Nullable
-    private static Double maxFromPing(KnockbackConfigResolver.KnockbackContext ctx) {
-        if (ctx.snap().source() instanceof Player attacker) {
-            double aPing = attacker.getLatency();
-            double scale = aPing / 200;
-            double value = 0.45 - scale * 0.25;
-            System.out.println(value);
-            return value;  // tune these values
-        }
-        return null;
+        var aPos = attacker.getPosition();
+        var tPos = target.getPosition();
+        double dist = Math.hypot(tPos.x() - aPos.x(), tPos.z() - aPos.z());
+        double limit = Math.max(0, RANGE_LIMIT_BASE - dist * RANGE_FACTOR);
+        double hMag = Math.hypot(kb.x(), kb.z());
+        if (hMag <= limit) return null; // under the line - untouched
+        double s = limit / hMag;
+        return new Vec(kb.x() * s, kb.y(), kb.z() * s);
     }
 
 }

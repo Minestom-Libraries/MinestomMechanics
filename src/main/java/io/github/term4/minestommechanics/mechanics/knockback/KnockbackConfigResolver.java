@@ -1,7 +1,7 @@
 package io.github.term4.minestommechanics.mechanics.knockback;
 
 import io.github.term4.minestommechanics.Services;
-import io.github.term4.minestommechanics.platform.Constants;
+import io.github.term4.minestommechanics.config.FieldValue;
 import io.github.term4.minestommechanics.tracking.MotionTracker;
 import io.github.term4.minestommechanics.tracking.SprintTracker;
 import io.github.term4.minestommechanics.tracking.VelocityRule;
@@ -20,7 +20,7 @@ public final class KnockbackConfigResolver {
             return new KnockbackContext(snap, services);
         }
         public boolean victimOnGround() {
-            return MotionTracker.isGrounded(snap.target());
+            return MotionTracker.onGround(snap.target());
         }
         public boolean sprint() {
             var a = snap.source();
@@ -35,15 +35,8 @@ public final class KnockbackConfigResolver {
             KnockbackConfig sub = cfg.subConfig.apply(ctx);
             if (sub != null) cfg = sub.fromBase(cfg);
         }
-        Integer kbVal = resolve(cfg.kbInvulTicks, ctx);
-        if (kbVal == null && ctx.services().damage() != null) {
-            kbVal = ctx.services().damage().defaultInvulTicks();
-        }
-        if (kbVal == null) {
-            kbVal = Constants.DEFAULT_INVUL_TICKS;
-        }
+        // No knockback-level invul window (neither has vanilla - KB gating is the attack processor's job).
         return new ResolvedKnockbackConfig(
-                kbVal,
                 resolve(cfg.sprintBuffer, ctx),
                 resolve(cfg.horizontal, ctx),
                 resolve(cfg.vertical, ctx),
@@ -61,41 +54,21 @@ public final class KnockbackConfigResolver {
                 resolve(cfg.extraHeightDelta, ctx),
                 resolve(cfg.horizontalCombine, ctx),
                 resolve(cfg.verticalCombine, ctx),
-                resolve(cfg.degenerateFallback, ctx),
                 resolve(cfg.frictionH, ctx),
                 resolve(cfg.frictionV, ctx),
                 resolve(cfg.frictionModeH, ctx),
                 resolve(cfg.frictionModeV, ctx),
-                resolve(cfg.rangeStartH, ctx),
-                resolve(cfg.rangeFactorH, ctx),
-                resolve(cfg.rangeStartV, ctx),
-                resolve(cfg.rangeFactorV, ctx),
-                resolve(cfg.rangeStartExtraH, ctx),
-                resolve(cfg.rangeFactorExtraH, ctx),
-                resolve(cfg.rangeStartExtraV, ctx),
-                resolve(cfg.rangeFactorExtraV, ctx),
-                resolve(cfg.rangeMaxH, ctx),
-                resolve(cfg.rangeMaxV, ctx),
-                resolve(cfg.rangeMaxExtraH, ctx),
-                resolve(cfg.rangeMaxExtraV, ctx),
-                resolve(cfg.sweepFactorH, ctx),
-                resolve(cfg.sweepFactorV, ctx),
-                resolve(cfg.sweepFactorExtraH, ctx),
-                resolve(cfg.sweepFactorExtraV, ctx),
-                resolve(cfg.knockbackFormula, ctx),
                 resolve(cfg.velocity, ctx),
-                resolve(cfg.verticalLaunchHold, ctx),
                 cfg.customComponents
         );
     }
 
-    private static <T> T resolve(@Nullable KnockbackConfig.FieldValue<T> fv, KnockbackContext ctx) {
+    private static <T> T resolve(@Nullable FieldValue<KnockbackContext, T> fv, KnockbackContext ctx) {
         return fv != null ? fv.resolve(ctx) : null;
     }
 
     /** Resolved config with plain values. Used by KnockbackCalculator. */
     public record ResolvedKnockbackConfig(
-            @Nullable Integer kbInvulnTicks,
             @Nullable Integer sprintBuffer,
             @Nullable Double horizontal,
             @Nullable Double vertical,
@@ -113,30 +86,11 @@ public final class KnockbackConfigResolver {
             @Nullable Double extraHeightDelta,
             @Nullable KnockbackConfig.DirectionMode horizontalCombine,
             @Nullable KnockbackConfig.DirectionMode verticalCombine,
-            @Nullable KnockbackConfig.DegenerateFallback degenerateFallback,
             @Nullable Double frictionH,
             @Nullable Double frictionV,
             @Nullable KnockbackConfig.FrictionMode frictionModeH,
             @Nullable KnockbackConfig.FrictionMode frictionModeV,
-            @Nullable Double rangeStartH,
-            @Nullable Double rangeFactorH,
-            @Nullable Double rangeStartV,
-            @Nullable Double rangeFactorV,
-            @Nullable Double rangeStartExtraH,
-            @Nullable Double rangeFactorExtraH,
-            @Nullable Double rangeStartExtraV,
-            @Nullable Double rangeFactorExtraV,
-            @Nullable Double rangeMaxH,
-            @Nullable Double rangeMaxV,
-            @Nullable Double rangeMaxExtraH,
-            @Nullable Double rangeMaxExtraV,
-            @Nullable Double sweepFactorH,
-            @Nullable Double sweepFactorV,
-            @Nullable Double sweepFactorExtraH,
-            @Nullable Double sweepFactorExtraV,
-            @Nullable KnockbackConfig.KnockbackFormula knockbackFormula,
             @Nullable VelocityRule velocity,
-            @Nullable Double verticalLaunchHold,
             @Nullable List<KnockbackComponent> customComponents
     ) {}
 }
