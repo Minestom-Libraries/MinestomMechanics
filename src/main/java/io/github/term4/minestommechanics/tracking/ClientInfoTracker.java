@@ -23,6 +23,8 @@ public final class ClientInfoTracker implements Tracker {
     /** ViaVersion proxy channel carrying {@code {"version": <protocol>, ...}} JSON. */
     public static final String VIA_PROXY_DETAILS_CHANNEL = "vv:proxy_details";
     public static final int UNKNOWN_PROTOCOL = -1;
+    /** Highest protocol version still treated as legacy (1.8.x = 47). */
+    public static final int LEGACY_PROTOCOL_MAX = 47;
 
     private static final Tag<ClientInfo> CLIENT_INFO = Tag.Transient("mm:client-info");
 
@@ -76,6 +78,16 @@ public final class ClientInfoTracker implements Tracker {
         int parsed = parseProtocol(json);
         if (parsed != UNKNOWN_PROTOCOL) info.cachedProtocol = parsed; // cache only valid parses
         return parsed;
+    }
+
+    /**
+     * Whether {@code player}'s tracked protocol is a known legacy ({@code <= 1.8.x}) client. Returns {@code false}
+     * while the protocol is still {@link #UNKNOWN_PROTOCOL} (proxy details arrive shortly after login, not during the
+     * join events) - callers that must not misclassify during that window should check {@link #getProtocol} directly.
+     */
+    public boolean isLegacy(Player player) {
+        int protocol = getProtocol(player);
+        return protocol != UNKNOWN_PROTOCOL && protocol <= LEGACY_PROTOCOL_MAX;
     }
 
     private static int parseProtocol(String json) {

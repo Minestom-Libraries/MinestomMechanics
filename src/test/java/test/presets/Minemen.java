@@ -3,11 +3,17 @@ package test.presets;
 import io.github.term4.minestommechanics.mechanics.Vanilla18;
 import io.github.term4.minestommechanics.api.event.AttackEvent;
 import io.github.term4.minestommechanics.mechanics.attack.AttackConfig;
+import io.github.term4.minestommechanics.mechanics.damage.DamageComponent;
 import io.github.term4.minestommechanics.mechanics.damage.DamageConfig;
+import io.github.term4.minestommechanics.mechanics.damage.DamageConfigResolver.DamageContext;
 import io.github.term4.minestommechanics.mechanics.damage.DamageSystem;
+import io.github.term4.minestommechanics.mechanics.damage.types.playerattack.PlayerAttack;
+import io.github.term4.minestommechanics.api.event.DamageEvent;
 import io.github.term4.minestommechanics.mechanics.knockback.KnockbackConfig;
 import io.github.term4.minestommechanics.mechanics.knockback.KnockbackConfigResolver;
 import io.github.term4.minestommechanics.mechanics.knockback.KnockbackComponent;
+import io.github.term4.minestommechanics.mechanics.projectile.ProjectileConfig;
+import io.github.term4.minestommechanics.platform.player.PlayerConfig;
 import io.github.term4.minestommechanics.tracking.SprintTracker;
 import io.github.term4.minestommechanics.tracking.VelocityConfig;
 import io.github.term4.minestommechanics.tracking.VelocityContext;
@@ -17,6 +23,7 @@ import net.minestom.server.MinecraftServer;
 import net.minestom.server.coordinate.Vec;
 import net.minestom.server.entity.Entity;
 import net.minestom.server.entity.LivingEntity;
+import net.minestom.server.item.ItemStack;
 import net.minestom.server.timer.TaskSchedule;
 import org.jetbrains.annotations.Nullable;
 
@@ -27,7 +34,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 // TODO: Try with piecewise function of some sort
 
 public final class Minemen {
-    // TODO: Disable damage override when both the initial damage and replacement damage are melee dealt with the same item.
     private Minemen() {}
 
     /** Returns AttackConfig based on Vanilla18, processed through the {@link #attackProcessor() Minemen ruleset}. */
@@ -101,13 +107,59 @@ public final class Minemen {
     public static DamageConfig dmg() {
         return DamageConfig.builder(Vanilla18.dmg())
                 .overdamageSilent(true)
+                // Minemen deals no knockback on generic damage ticks: the hurt broadcast is off entirely
+                // (the only way to switch off an inherited hurtKnockback - merge semantics can't null it).
+                .syncHurtVelocity(false)
+                .addCustomComponent(Minemen::blockSameItemOverdamage)
                 .build();
     }
 
-    // TODO: Double check this with our new velocity stuff
+    /**
+     * Minemen overdamage rule: skip replacement when the incoming melee hit uses the same weapon
+     * (material) as the hit that opened the invulnerability window.
+     */
+    @Nullable
+    private static Float blockSameItemOverdamage(DamageContext ctx, DamageEvent event, float amount, boolean overdamage) {
+        if (!overdamage || amount <= 0) return null;
+        if (!PlayerAttack.KEY.equals(event.type().key())) return null;
+        if (!(event.target() instanceof LivingEntity le)) return null;
+        if (sameItem(event.item(), DamageSystem.openingHitItem(le))) return 0f;
+        return null;
+    }
+
+    private static boolean sameItem(@Nullable ItemStack a, @Nullable ItemStack b) {
+        boolean aFist = a == null || a.isAir();
+        boolean bFist = b == null || b.isAir();
+        if (aFist && bFist) return true;
+        if (aFist != bFist) return false;
+        return a.material().equals(b.material());
+    }
+
+    public static PlayerConfig player() {
+        return PlayerConfig.builder(Vanilla18.player())
+                .positionBroadcastInterval(1)
+                .build();
+    }
+
+    /**
+     * Minemen projectile config. Inherits the vanilla 1.8 baseline ({@link Vanilla18#projectileDefaults()} physics +
+     * {@link Vanilla18#snowball()} damage/spawn) so projectile behavior is unchanged today. This is the seam to give
+     * projectiles Minemen's feel - e.g. override the generic knockback for a cap-hold vertical so chained snowballs
+     * don't sag like vanilla:
+     * {@code .defaults(Vanilla18.projectileDefaults().toBuilder().knockback(projectileKb()).build())}.
+     */
+    public static ProjectileConfig projectiles() {
+        return ProjectileConfig.builder(Vanilla18.projectiles()).build();
+    }
+
+    /**
+     * Minemen knockback. Velocity is NOT pinned here - it reads from the scope, so pair this with
+     * {@code MechanicsProfile.velocity(Minemen.velocity())} (the friction fold AND the custom components below
+     * read the one scoped rule via {@code ctx.victimVelocity()}). Without a scoped velocity the fold + components
+     * fall back to {@link VelocityRule#DEFAULT}, so melee and projectiles stay consistent either way.
+     */
     public static KnockbackConfig kb() {
         return KnockbackConfig.builder(Vanilla18.kb())
-                .velocity(VICTIM_VEL)
                 .sprintBuffer(SPRINT_BUFFER)
                 .horizontal(0.5274)
                 .vertical(VERTICAL_BASE)
@@ -117,10 +169,14 @@ public final class Minemen {
                 .yawWeight(0.5)
                 .extraYawWeight(0.5)
                 .frictionH(0.0)
-                .frictionV(VERTICAL_FRIC) // = N*drag (base = CAP + g/N): exact wire-shorts over no-jump ticks 6-41 + jump ticks 13-19
+                .frictionV(VERTICAL_FRIC)
                 .addCustomComponent(Minemen::verticalLaunchHold)
                 .addCustomComponent(Minemen::axialFriction)
-                .addCustomComponent(Minemen::rangeReduction) // after axial drag, on the final vector
+                // Range reduction is the LAST stage - a final limit on everything above it. The fix for the
+                // behind-hit crush was the RANGE_LIMIT_MIN floor (not reordering): without it the far-range
+                // line fell toward 0 and re-capped a drag-reduced behind-hit to ~0-0.3; the floor pins it at
+                // RANGE_LIMIT_MIN (~0.5674) instead.
+                .addCustomComponent(Minemen::rangeReduction)
                 .build();
     }
 
@@ -151,6 +207,16 @@ public final class Minemen {
             VelocityRule.simulated()); // vanilla defaults: PER_TICK vertical, launch offset -1
 
     /**
+     * Minemen velocity tracking method ({@link #VICTIM_VEL}): split sprint-reconstruction horizontal +
+     * server-arc vertical. Set on a {@code MechanicsProfile.velocity(...)} scope - the friction fold and the
+     * axial-drag / cap-hold components then read it through {@code ctx.victimVelocity()}, so it is configured
+     * once here, not pinned onto {@link #kb()}.
+     */
+    public static VelocityRule velocity() {
+        return VICTIM_VEL;
+    }
+
+    /**
      * Quantized victim sprint velocity: the flat sprint-jump {@link #SPRINT_JUMP_IMPULSE} along the victim's facing
      * while its client was sprinting within {@link #SPRINT_BUFFER} ticks, else zero. The single place to fold in any
      * future per-victim sprint-speed modifier (speed effects, attribute scaling, ...).
@@ -173,9 +239,7 @@ public final class Minemen {
      */
     @Nullable
     private static Vec verticalLaunchHold(KnockbackConfigResolver.KnockbackContext ctx, Vec kb) {
-        Entity target = ctx.snap().target();
-        if (target == null) return null;
-        double vy = VICTIM_VEL.estimate(VelocityContext.of(target, ctx.services().sprintTracker())).y();
+        double vy = ctx.victimVelocity().y();
         if (vy <= VERTICAL_HOLD_RELEASE) return null;
         return new Vec(kb.x(), VERTICAL_CAP, kb.z());
     }
@@ -198,14 +262,11 @@ public final class Minemen {
     private static Vec axialFriction(KnockbackConfigResolver.KnockbackContext ctx, Vec kb) {
         var snap = ctx.snap();
         Entity attacker = snap.source();
-        Entity target = snap.target();
         if (attacker == null || !snap.melee()) return null;
         var tracker = ctx.services().sprintTracker();
         if (!SprintTracker.wasRecentlySprinting(tracker, attacker, SPRINT_BUFFER)) return null;     // sprint hit
 
-        // victim's reconstructed horizontal sprint velocity, off the same rule the config uses (zero -> client wasn't
-        // sprinting -> no drag); vertical component is the friction term's fall delta, ignored here
-        Vec vel = VICTIM_VEL.estimate(VelocityContext.of(target, tracker));
+        Vec vel = ctx.victimVelocity();
         double speed = Math.hypot(vel.x(), vel.z());
         if (speed <= 0) return null;
 
@@ -218,7 +279,7 @@ public final class Minemen {
         /*
         // Could also be this, they're nearly identical. The following method suffers less from knockback displacement
 
-        var tPos = target.getPosition();
+        var tPos = snap.target().getPosition();
         Vec push = new Vec(tPos.x() - aPos.x(), 0, tPos.z() - aPos.z()); // attacker -> target (base push dir)
         if (push.lengthSquared() < 1e-9) return null;
         Vec axis = Directions.snapDominantAxis(push);
@@ -231,12 +292,16 @@ public final class Minemen {
     /** Range limit line: max horizontal KB (b/t) = {@link #RANGE_LIMIT_BASE} - distance x {@link #RANGE_FACTOR}. */
     private static final double RANGE_LIMIT_BASE = 2.0;
     private static final double RANGE_FACTOR = 0.35;
+    /** Floor of the range limit: no distance can cap horizontal KB below this (empirical; above the 0.5274 base - fine). */
+    private static final double RANGE_LIMIT_MIN = 0.5674;
 
     /**
      * Minemen range reduction - a linear <em>limit</em> on knockback by distance, not a scale-down: the
-     * horizontal magnitude of the final vector is capped at {@code RANGE_LIMIT_BASE - distance * RANGE_FACTOR}
-     * (floored at 0), so close hits are untouched and far-reach hits cannot exceed the line. Runs after
-     * {@link #axialFriction} on the final vector; direction and vertical are preserved.
+     * horizontal magnitude is capped at {@code max(RANGE_LIMIT_BASE - distance * RANGE_FACTOR, RANGE_LIMIT_MIN)}
+     * - i.e. {@code kb = min(max(line, kbMin), kb0)} - so close hits are untouched, far-reach hits cannot
+     * exceed the line, and the {@link #RANGE_LIMIT_MIN} floor keeps long-range hits from being crushed toward
+     * zero. Runs LAST (after {@link #axialFriction} and every other stage) - a final cap on the whole vector;
+     * direction and vertical are preserved.
      */
     @Nullable
     private static Vec rangeReduction(KnockbackConfigResolver.KnockbackContext ctx, Vec kb) {
@@ -248,7 +313,7 @@ public final class Minemen {
         var aPos = attacker.getPosition();
         var tPos = target.getPosition();
         double dist = Math.hypot(tPos.x() - aPos.x(), tPos.z() - aPos.z());
-        double limit = Math.max(0, RANGE_LIMIT_BASE - dist * RANGE_FACTOR);
+        double limit = Math.max(RANGE_LIMIT_BASE - dist * RANGE_FACTOR, RANGE_LIMIT_MIN);
         double hMag = Math.hypot(kb.x(), kb.z());
         if (hMag <= limit) return null; // under the line - untouched
         double s = limit / hMag;

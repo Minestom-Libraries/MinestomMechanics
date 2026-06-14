@@ -1,9 +1,10 @@
 package io.github.term4.minestommechanics.mechanics.damage;
 
 import io.github.term4.minestommechanics.Services;
-import io.github.term4.minestommechanics.api.event.DamageEvent;
 import io.github.term4.minestommechanics.config.FieldValue;
 import io.github.term4.minestommechanics.mechanics.damage.types.DamageTypeConfig;
+import io.github.term4.minestommechanics.mechanics.knockback.KnockbackConfig;
+import net.minestom.server.item.ItemStack;
 import org.jetbrains.annotations.Nullable;
 
 /** Resolves DamageConfig with context into plain values. Mirrors KnockbackConfigResolver. */
@@ -14,6 +15,18 @@ public final class DamageConfigResolver {
     public record DamageContext(DamageSnapshot snap, Services services) {
         public static DamageContext of(DamageSnapshot snap, Services services) {
             return new DamageContext(snap, services);
+        }
+
+        /** Item involved in the damage (melee weapon, later a projectile's bow), or {@code null}. */
+        public @Nullable ItemStack item() { return snap.item(); }
+
+        /** Type-specific payload attached by the producer (e.g. the fall distance), or {@code null}. */
+        public @Nullable Object detail() { return snap.detail(); }
+
+        /** The {@link #detail()} payload when it is an instance of {@code type}, else {@code null}. */
+        public <T> @Nullable T detail(Class<T> type) {
+            Object d = snap.detail();
+            return type.isInstance(d) ? type.cast(d) : null;
         }
 
         /**
@@ -53,12 +66,12 @@ public final class DamageConfigResolver {
 
         Integer invulTicks = resolve(cfg.invulTicks, ctx);
         Boolean enableOverdamage = resolve(cfg.enableOverdamage, ctx);
-        DamageEvent.OverdamageRule overdamageRule = resolve(cfg.overdamageRule, ctx);
         Boolean silent = resolve(cfg.silent, ctx);
         Boolean overdamageSilent = resolve(cfg.overdamageSilent, ctx);
+        Boolean syncHurtVelocity = resolve(cfg.syncHurtVelocity, ctx);
+        KnockbackConfig hurtKnockback = resolve(cfg.hurtKnockback, ctx);
 
-        return new ResolvedDamageConfig(ctx.baseAmount(), invulTicks, enableOverdamage,
-                overdamageRule, silent, overdamageSilent);
+        return new ResolvedDamageConfig(ctx.baseAmount(), invulTicks, enableOverdamage, silent, overdamageSilent, syncHurtVelocity, hurtKnockback);
     }
 
     private static <T> T resolve(@Nullable FieldValue<DamageContext, T> fv, DamageContext ctx) {
@@ -70,8 +83,9 @@ public final class DamageConfigResolver {
             float baseAmount,
             @Nullable Integer invulTicks,
             @Nullable Boolean enableOverdamage,
-            @Nullable DamageEvent.OverdamageRule overdamageRule,
             @Nullable Boolean silent,
-            @Nullable Boolean overdamageSilent
+            @Nullable Boolean overdamageSilent,
+            @Nullable Boolean syncHurtVelocity,
+            @Nullable KnockbackConfig hurtKnockback
     ) {}
 }

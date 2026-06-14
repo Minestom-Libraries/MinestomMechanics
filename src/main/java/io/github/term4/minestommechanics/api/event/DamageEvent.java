@@ -7,6 +7,7 @@ import io.github.term4.minestommechanics.mechanics.damage.types.DamageType;
 import net.minestom.server.entity.Entity;
 import net.minestom.server.entity.LivingEntity;
 import net.minestom.server.event.trait.CancellableEvent;
+import net.minestom.server.item.ItemStack;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -64,8 +65,8 @@ public final class DamageEvent implements CancellableEvent {
 
     /**
      * The "last damage" highwater stored on the target for the current invulnerability window: the
-     * largest amount applied so far while invulnerable. Used by {@link OverdamageRule} to decide how
-     * much of an incoming hit replaces the stored damage. {@code 0} when the target is fresh.
+     * largest amount applied so far while invulnerable. Vanilla overdamage applies only the delta
+     * {@code amount - stored} when positive. {@code 0} when the target is fresh.
      */
     public float stored() { return stored; }
 
@@ -77,41 +78,14 @@ public final class DamageEvent implements CancellableEvent {
     public DamageType type() { return finalSnap().type(); }
     public Entity target() { return finalSnap().target(); }
     public @Nullable Entity source() { return finalSnap().source(); }
+    /** Item involved in the damage (melee weapon, later a projectile's bow), or {@code null}. */
+    public @Nullable ItemStack item() { return finalSnap().item(); }
+    /** Type-specific payload attached by the producer (e.g. the fall distance), or {@code null}. */
+    public @Nullable Object detail() { return finalSnap().detail(); }
 
     /** Cancel the damage. */
     public void cancel() { setCancelled(true); }
 
     @Override public boolean isCancelled() { return cancelled; }
     @Override public void setCancelled(boolean cancel) { this.cancelled = cancel; }
-
-    /**
-     * Defines the 1.8 "overdamage" (damage-replacement) behavior: when a hit lands while the target is
-     * still inside its damage invulnerability window, this rule decides how much damage to apply.
-     * Supplied via {@code DamageConfig.overdamageRule(...)} (global) or per-type via
-     * {@code DamageTypeConfig.overdamageRule(...)}, mirroring how {@link AttackEvent.CriticalRule}
-     * works on attacks.
-     *
-     * <p>A rule receives the full {@link DamageEvent}, so it can branch on the incoming
-     * {@link DamageEvent#amount()} and the {@link DamageEvent#stored()} highwater (and anything else
-     * on the event). Returning {@code 0} applies nothing.
-     */
-    @FunctionalInterface
-    public interface OverdamageRule {
-
-        /** Rule used when a damage config does not specify one. */
-        OverdamageRule DEFAULT = vanilla();
-
-        /** Amount to actually apply during an active invulnerability window ({@code 0} = nothing). */
-        float overdamage(DamageEvent event);
-
-        /** Vanilla 1.8: replace only the delta when the new hit exceeds the stored hit. */
-        static OverdamageRule vanilla() {
-            return e -> e.amount() > e.stored() ? e.amount() - e.stored() : 0f;
-        }
-
-        /** Never replaces (no overdamage even when enabled). */
-        static OverdamageRule never() {
-            return e -> 0f;
-        }
-    }
 }

@@ -58,4 +58,7 @@ public final class VelocityContext {
 
     /** Launch origin (yaw + sprint + takeoff horizontal residual/seed) while in a launch arc, or {@code null}. */
     public @Nullable MotionTracker.JumpInfo recentJump() { return MotionTracker.recentJump(entity); }
+
+    /** Server-side {@code Entity.collide} push residual (zero-Y, b/t); see {@link MotionTracker#entityPush}. */
+    public Vec entityPush() { return MotionTracker.entityPush(entity); }
 }

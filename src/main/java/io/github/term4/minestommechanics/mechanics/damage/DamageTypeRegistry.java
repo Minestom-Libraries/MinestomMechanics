@@ -4,8 +4,11 @@ import io.github.term4.minestommechanics.MinestomMechanics;
 import io.github.term4.minestommechanics.mechanics.damage.types.DamageType;
 import io.github.term4.minestommechanics.mechanics.damage.types.DamageTypeConfig;
 import io.github.term4.minestommechanics.mechanics.damage.types.VanillaTypes;
+import io.github.term4.minestommechanics.mechanics.damage.types.burning.BurningDamage;
+import io.github.term4.minestommechanics.mechanics.damage.types.burning.InFireDamage;
+import io.github.term4.minestommechanics.mechanics.damage.types.burning.LavaDamage;
+import io.github.term4.minestommechanics.mechanics.damage.types.cactus.CactusDamage;
 import io.github.term4.minestommechanics.mechanics.damage.types.fall.FallDamage;
-import io.github.term4.minestommechanics.mechanics.damage.types.fire.FireDamage;
 import io.github.term4.minestommechanics.mechanics.damage.types.generic.GenericDamage;
 import io.github.term4.minestommechanics.mechanics.damage.types.playerattack.PlayerAttack;
 import net.kyori.adventure.key.Key;
@@ -92,13 +95,19 @@ public final class DamageTypeRegistry {
 
     /**
      * Registers the built-in vanilla damage type definitions (data only, no producers enabled).
-     * Mirrors the keys cached in {@link VanillaTypes}.
+     * Mirrors the keys cached in {@link VanillaTypes}. Self-driven producers (fall, the burning
+     * family, cactus) start via {@link #enable} - typically through
+     * {@code DamageSystem.install(mm, cfg, types...)}.
      */
     public DamageTypeRegistry registerVanillaDefaults() {
         register(PlayerAttack.INSTANCE);
-        register(FallDamage.INSTANCE);
-        register(FireDamage.INSTANCE);
         register(GenericDamage.INSTANCE);
+        register(io.github.term4.minestommechanics.mechanics.damage.types.projectile.ProjectileDamage.INSTANCE);
+        register(FallDamage.INSTANCE);
+        register(InFireDamage.INSTANCE);
+        register(BurningDamage.INSTANCE);
+        register(LavaDamage.INSTANCE);
+        register(CactusDamage.INSTANCE);
         return this;
     }
 }

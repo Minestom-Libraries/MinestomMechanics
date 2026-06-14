@@ -6,6 +6,7 @@ import io.github.term4.minestommechanics.platform.player.OptimizedPlayer;
 import io.github.term4.minestommechanics.platform.player.PlayerConfigApplier;
 import io.github.term4.minestommechanics.mechanics.damage.DamageSystem;
 import io.github.term4.minestommechanics.mechanics.knockback.KnockbackSystem;
+import io.github.term4.minestommechanics.mechanics.projectile.ProjectileSystem;
 import io.github.term4.minestommechanics.tracking.ClientInfoTracker;
 import io.github.term4.minestommechanics.tracking.MotionTracker;
 import io.github.term4.minestommechanics.tracking.SprintTracker;
@@ -30,8 +31,15 @@ public final class MinestomMechanics {
     public boolean installSprintTracker = true;
     /** When enabled, tracks per-entity air-time, launch state, and position-delta motion (drives knockback velocity). Default: true */
     public boolean installMotionTracker = true;
-    /** When enabled, the stutter seen on 1.9+ clients when changing poses (sneaking, sprinting, etc.) due to high ping will not be present */
+    /** When enabled, the stutter seen on 1.9+ clients when changing poses (sneaking, sprinting, etc.) due to high ping will not be present. Requires {@link #installPlayerProvider}. */
     public boolean metaFix = true;
+    /**
+     * When enabled, installs the {@code OptimizedPlayer} provider and the scoped {@code PlayerConfig}
+     * application (e.g. {@code positionBroadcastInterval}). Independent of {@link #metaFix} - broadcast
+     * throttling works without the meta fix. Disable only if you set your own player provider; extend
+     * {@code OptimizedPlayer} there to keep PlayerConfig support. Default: true
+     */
+    public boolean installPlayerProvider = true;
 
     // might add an option for packet validation when not using a proxy? probably better to use a separate library for that though
     private final EventNode<@NotNull Event> root = EventNode.all("mm:root");
@@ -47,16 +55,33 @@ public final class MinestomMechanics {
     private @Nullable AttackSystem attackSystem;
     private @Nullable KnockbackSystem knockbackSystem;
     private @Nullable DamageSystem damageSystem;
+    private @Nullable ProjectileSystem projectileSystem;
 
     public void registerAttack(AttackSystem a) { attackSystem = a; }
     public void registerKnockback(KnockbackSystem k) { knockbackSystem = k; }
     public void registerDamage(DamageSystem d) { damageSystem = d; }
+    public void registerProjectiles(ProjectileSystem p) { projectileSystem = p; }
 
     public @Nullable SprintTracker sprintTracker() { return sprintTracker; }
     public @Nullable MotionTracker motionTracker() { return motionTracker; }
     public @Nullable AttackSystem attackSystem() { return attackSystem; }
     public @Nullable KnockbackSystem knockbackSystem() { return knockbackSystem; }
     public @Nullable DamageSystem damageSystem() { return damageSystem; }
+    public @Nullable ProjectileSystem projectileSystem() { return projectileSystem; }
+
+    /** Vanilla 1.8 keep-alive cadence (40 ticks). */
+    public static final long LEGACY_KEEP_ALIVE_MS = 2000;
+
+    /**
+     * Sets the keep-alive interval - which is also how often {@link net.minestom.server.entity.Player#getLatency()}
+     * refreshes (Minestom measures the round-trip on the read thread, sub-tick accurate; only the cadence is
+     * coarse, defaulting to 10s). MUST be called before {@code MinecraftServer.init()}: the flag is read once
+     * at {@code ServerFlag} class-load. {@link #LEGACY_KEEP_ALIVE_MS} = vanilla 1.8's 2s cadence; pass smaller
+     * (e.g. 500, Hypixel's dedicated probe rate) for fresher latency reads.
+     */
+    public static void keepAliveInterval(long millis) {
+        System.setProperty("minestom.keep-alive-delay", Long.toString(millis));
+    }
 
     private static final MinestomMechanics INSTANCE = new MinestomMechanics();
     private boolean initialized = false;
@@ -73,8 +98,12 @@ public final class MinestomMechanics {
         // Enable always-necessary functions
         TickClock.start();
 
-        if (metaFix) {
-            EchoFix.install();
+        if (metaFix && !installPlayerProvider) {
+            System.out.println("[mm] metaFix is enabled but installPlayerProvider is not - the meta fix needs the"
+                    + " EchoFix player provider and will be inert (set your own provider extending OptimizedPlayer).");
+        }
+        if (metaFix) EchoFix.install();
+        if (installPlayerProvider) {
             MinecraftServer.getConnectionManager().setPlayerProvider((conn, profile) ->
                     new OptimizedPlayer(conn, profile));
             // Scoped PlayerConfig (profiles) -> OptimizedPlayer, applied at spawn (join / instance
@@ -88,13 +117,21 @@ public final class MinestomMechanics {
         root.addChild(apiEvents);
 
         // Trackers: per-player state stamped off events; each enabled one mounts under a shared node.
-        EventNode<@NotNull Event> trackers = EventNode.all("mm:trackers");
-        root.addChild(trackers);
+        trackersNode = EventNode.all("mm:trackers");
+        root.addChild(trackersNode);
 
         clientInfo = new ClientInfoTracker();
-        if (installSprintTracker) mount(trackers, sprintTracker = new SprintTracker());
-        if (installMotionTracker) mount(trackers, motionTracker = new MotionTracker());
-        if (viaProxyDetails) mount(trackers, clientInfo);
+        if (installSprintTracker) mountTracker(sprintTracker = new SprintTracker());
+        if (installMotionTracker) mountTracker(motionTracker = new MotionTracker());
+        if (viaProxyDetails) mountTracker(clientInfo);
+    }
+
+    private EventNode<@NotNull Event> trackersNode;
+
+    /** Mounts a tracker under {@code mm:trackers} (init-time or lazily from installed systems). */
+    public void mountTracker(Tracker tracker) {
+        if (!initialized) throw new IllegalStateException("MinestomMechanics has not been initialized");
+        mount(trackersNode, tracker);
     }
 
     /** Starts a tracker and mounts its listener node. */

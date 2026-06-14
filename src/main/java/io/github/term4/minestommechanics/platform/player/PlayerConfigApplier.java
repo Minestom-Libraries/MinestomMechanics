@@ -20,7 +20,7 @@ public final class PlayerConfigApplier {
 
     private PlayerConfigApplier() {}
 
-    /** Installs the spawn listener. Called by {@code MinestomMechanics.init()} when metaFix is on. */
+    /** Installs the spawn listener. Called by {@code MinestomMechanics.init()} when installPlayerProvider is on. */
     public static void install(MinestomMechanics mm) {
         EventNode<@NotNull PlayerEvent> node = EventNode.type("mm:player-config", EventFilter.PLAYER);
         node.addListener(PlayerSpawnEvent.class, e -> apply(mm, e.getPlayer()));

@@ -50,12 +50,28 @@ public final class KnockbackConfig extends Config<KnockbackContext, KnockbackCon
     public final FieldValue<KnockbackContext, Double> frictionV;
     public final FieldValue<KnockbackContext, FrictionMode> frictionModeH;
     public final FieldValue<KnockbackContext, FrictionMode> frictionModeV;
-    /** How the friction term reconstructs the victim's velocity (see {@link VelocityRule}). */
+    /**
+     * How the friction term estimates the victim's velocity (see {@link VelocityRule}). Resolution is
+     * config override -&gt; the victim's scoped {@link io.github.term4.minestommechanics.MechanicsProfile#velocity()
+     * profile velocity} -&gt; {@link VelocityRule#DEFAULT}, so prefer setting the tracking method ONCE on a profile
+     * scope and leaving this unset; use this only for a genuine per-config override (e.g. a preset with a custom
+     * fold). Custom {@link KnockbackComponent}s read the resolved rule via {@code ctx.victimVelocity()}.
+     */
     public final FieldValue<KnockbackContext, VelocityRule> velocity;
+    /**
+     * Quantize the outgoing velocity to 1.8's wire grid (truncated {@code x8000} shorts - see
+     * {@link io.github.term4.minestommechanics.util.LegacyVelocity}). This is a <em>server-emulation</em>
+     * knob, not a client one: a server emulating 1.8 sends what a 1.8 server would have sent, to ALL clients
+     * (the modern encoding carries near-raw doubles, so without this a boundary value like the {@code 0.42F}
+     * jump seed arrives one short high). Unset = enabled; disable for modern-mechanics presets.
+     */
+    public final FieldValue<KnockbackContext, Boolean> quantizeVelocity;
     /**
      * Pluggable transforms applied in order on the <em>final</em> knockback vector (blocks/tick), after all
      * base/extra/friction/bounds logic. Each {@link KnockbackComponent} self-gates and may apply non-linear
      * logic the base pipeline cannot (e.g. axis snapping, distance limits). {@code null} or empty means none.
+     * TODO(stages): components are post-stages only; replacing a BUILT-IN stage's formula (friction fold,
+     *  combine, bounds) will become per-stage strategy knobs - see the KnockbackCalculator stages TODO.
      */
     @Nullable public final List<KnockbackComponent> customComponents;
 
@@ -83,6 +99,7 @@ public final class KnockbackConfig extends Config<KnockbackContext, KnockbackCon
         frictionModeH = b.frictionModeH;
         frictionModeV = b.frictionModeV;
         velocity = b.velocity;
+        quantizeVelocity = b.quantizeVelocity;
         customComponents = b.customComponents;
     }
 
@@ -112,6 +129,7 @@ public final class KnockbackConfig extends Config<KnockbackContext, KnockbackCon
                 .frictionModeH(merge(frictionModeH, base.frictionModeH))
                 .frictionModeV(merge(frictionModeV, base.frictionModeV))
                 .velocity(merge(velocity, base.velocity))
+                .quantizeVelocity(merge(quantizeVelocity, base.quantizeVelocity))
                 .customComponents(customComponents != null ? customComponents : base.customComponents)
                 .build();
     }
@@ -152,6 +170,7 @@ public final class KnockbackConfig extends Config<KnockbackContext, KnockbackCon
         private FieldValue<KnockbackContext, FrictionMode> frictionModeH;
         private FieldValue<KnockbackContext, FrictionMode> frictionModeV;
         private FieldValue<KnockbackContext, VelocityRule> velocity;
+        private FieldValue<KnockbackContext, Boolean> quantizeVelocity;
         private List<KnockbackComponent> customComponents;
 
         Builder() {}
@@ -180,6 +199,7 @@ public final class KnockbackConfig extends Config<KnockbackContext, KnockbackCon
             frictionModeH = c.frictionModeH;
             frictionModeV = c.frictionModeV;
             velocity = c.velocity;
+            quantizeVelocity = c.quantizeVelocity;
             customComponents = c.customComponents;
         }
 
@@ -254,6 +274,9 @@ public final class KnockbackConfig extends Config<KnockbackContext, KnockbackCon
         public Builder velocity(VelocityRule v) { velocity = FieldValue.constant(v); return this; }
         public Builder velocity(Function<KnockbackContext, VelocityRule> fn) { velocity = FieldValue.of(fn); return this; }
         public Builder velocity(VelocityRule fallback, Function<KnockbackContext, VelocityRule> fn) { velocity = FieldValue.ofWithFallback(fallback, fn); return this; }
+        public Builder quantizeVelocity(Boolean v) { quantizeVelocity = FieldValue.constant(v); return this; }
+        public Builder quantizeVelocity(Function<KnockbackContext, Boolean> fn) { quantizeVelocity = FieldValue.of(fn); return this; }
+        public Builder quantizeVelocity(Boolean fallback, Function<KnockbackContext, Boolean> fn) { quantizeVelocity = FieldValue.ofWithFallback(fallback, fn); return this; }
         /** Appends to the current/inherited components (copying first, so shared lists aren't mutated). */
         public Builder addCustomComponent(KnockbackComponent component) {
             List<KnockbackComponent> list = customComponents == null ? new ArrayList<>() : new ArrayList<>(customComponents);
@@ -283,6 +306,7 @@ public final class KnockbackConfig extends Config<KnockbackContext, KnockbackCon
         Builder frictionModeH(FieldValue<KnockbackContext, FrictionMode> v) { frictionModeH = v; return this; }
         Builder frictionModeV(FieldValue<KnockbackContext, FrictionMode> v) { frictionModeV = v; return this; }
         Builder velocity(FieldValue<KnockbackContext, VelocityRule> v) { velocity = v; return this; }
+        Builder quantizeVelocity(FieldValue<KnockbackContext, Boolean> v) { quantizeVelocity = v; return this; }
         Builder customComponents(List<KnockbackComponent> v) { customComponents = v; return this; }
 
         public KnockbackConfig build() {

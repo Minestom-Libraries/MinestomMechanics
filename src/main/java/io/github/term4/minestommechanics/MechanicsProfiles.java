@@ -3,7 +3,9 @@ package io.github.term4.minestommechanics;
 import io.github.term4.minestommechanics.mechanics.attack.AttackConfig;
 import io.github.term4.minestommechanics.mechanics.damage.DamageConfig;
 import io.github.term4.minestommechanics.mechanics.knockback.KnockbackConfig;
+import io.github.term4.minestommechanics.mechanics.projectile.ProjectileConfig;
 import io.github.term4.minestommechanics.platform.player.PlayerConfig;
+import io.github.term4.minestommechanics.tracking.VelocityRule;
 import net.minestom.server.entity.Entity;
 import net.minestom.server.entity.Player;
 import net.minestom.server.instance.Instance;
@@ -86,6 +88,16 @@ public final class MechanicsProfiles {
     /** Effective player platform config for {@code subject}, or {@code null} when no scope sets one. */
     public @Nullable PlayerConfig playerFor(@Nullable Entity subject) {
         return resolve(subject, MechanicsProfile::player);
+    }
+
+    /** Effective velocity tracking rule for {@code subject} (the victim), or {@code null} when no scope sets one. */
+    public @Nullable VelocityRule velocityFor(@Nullable Entity subject) {
+        return resolve(subject, MechanicsProfile::velocity);
+    }
+
+    /** Effective projectile config for {@code subject} (the shooter), or {@code null} when no scope sets one. */
+    public @Nullable ProjectileConfig projectilesFor(@Nullable Entity subject) {
+        return resolve(subject, MechanicsProfile::projectiles);
     }
 
     private <T> @Nullable T resolve(@Nullable Entity subject, Function<MechanicsProfile, @Nullable T> member) {

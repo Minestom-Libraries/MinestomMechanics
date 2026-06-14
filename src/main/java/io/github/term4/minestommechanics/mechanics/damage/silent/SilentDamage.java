@@ -17,14 +17,10 @@ import net.minestom.server.entity.attribute.Attribute;
  */
 public final class SilentDamage {
 
-    /** Highest protocol still considered legacy (1.8.x = 47). */
-    private static final int LEGACY_PROTOCOL_MAX = 47;
-
     private SilentDamage() {}
 
     public static void setHealthWithoutHurtEffect(Player player, float newHealth, ClientInfoTracker clientInfo) {
-        int protocol = clientInfo != null ? clientInfo.getProtocol(player) : ClientInfoTracker.UNKNOWN_PROTOCOL;
-        boolean legacy = protocol != ClientInfoTracker.UNKNOWN_PROTOCOL && protocol <= LEGACY_PROTOCOL_MAX;
+        boolean legacy = clientInfo != null && clientInfo.isLegacy(player);
 
         if (legacy) {
             HurtSuppression.setSuppressHealthPackets(player, true);

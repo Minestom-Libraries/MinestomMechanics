@@ -1,6 +1,5 @@
 package io.github.term4.minestommechanics.mechanics.damage.types.playerattack;
 
-import io.github.term4.minestommechanics.api.event.DamageEvent;
 import io.github.term4.minestommechanics.config.FieldValue;
 import io.github.term4.minestommechanics.mechanics.damage.DamageConfigResolver.DamageContext;
 import io.github.term4.minestommechanics.mechanics.damage.types.DamageTypeConfig;
@@ -39,10 +38,14 @@ public final class PlayerAttackConfig extends DamageTypeConfig {
     public static Builder builder() { return new Builder(); }
 
     public static final class Builder {
-        // Vanilla baselines so a partial override keeps sensible values; invul/overdamage stay unset to inherit global.
-        private final DamageTypeConfig.Builder common = new DamageTypeConfig.Builder().key(PlayerAttack.KEY).baseAmount(1.0);
+        // Vanilla baselines so a partial override keeps sensible values; invul/overdamage stay unset to inherit
+        // global. The default base amount is the 1.8 weapon table resolved against the attacking item.
+        private final DamageTypeConfig.Builder common = new DamageTypeConfig.Builder().key(PlayerAttack.KEY)
+                .baseAmount(LegacyWeaponDamage::baseAmount);
         private FieldValue<DamageContext, Double> critMultiplier = FieldValue.constant(1.5);
 
+        public Builder enabled(Boolean v) { common.enabled(v); return this; }
+        public Builder enabled(Function<DamageContext, Boolean> fn) { common.enabled(fn); return this; }
         public Builder baseAmount(Double v) { common.baseAmount(v); return this; }
         public Builder baseAmount(Function<DamageContext, Double> fn) { common.baseAmount(fn); return this; }
         public Builder baseAmount(Double fallback, Function<DamageContext, Double> fn) { common.baseAmount(fallback, fn); return this; }
@@ -52,9 +55,6 @@ public final class PlayerAttackConfig extends DamageTypeConfig {
         public Builder overdamage(Boolean v) { common.overdamage(v); return this; }
         public Builder overdamage(Function<DamageContext, Boolean> fn) { common.overdamage(fn); return this; }
         public Builder overdamage(Boolean fallback, Function<DamageContext, Boolean> fn) { common.overdamage(fallback, fn); return this; }
-        public Builder overdamageRule(DamageEvent.OverdamageRule v) { common.overdamageRule(v); return this; }
-        public Builder overdamageRule(Function<DamageContext, DamageEvent.OverdamageRule> fn) { common.overdamageRule(fn); return this; }
-        public Builder overdamageRule(DamageEvent.OverdamageRule fallback, Function<DamageContext, DamageEvent.OverdamageRule> fn) { common.overdamageRule(fallback, fn); return this; }
         public Builder silent(Boolean v) { common.silent(v); return this; }
         public Builder silent(Function<DamageContext, Boolean> fn) { common.silent(fn); return this; }
         public Builder silent(Boolean fallback, Function<DamageContext, Boolean> fn) { common.silent(fallback, fn); return this; }

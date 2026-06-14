@@ -1,6 +1,5 @@
 package io.github.term4.minestommechanics.mechanics.damage.types;
 
-import io.github.term4.minestommechanics.api.event.DamageEvent;
 import io.github.term4.minestommechanics.config.FieldValue;
 import io.github.term4.minestommechanics.mechanics.damage.DamageConfig;
 import io.github.term4.minestommechanics.mechanics.damage.DamageConfigResolver.DamageContext;
@@ -23,10 +22,10 @@ import java.util.function.Function;
 public class DamageTypeConfig {
 
     private final Key key;
+    private final @Nullable FieldValue<DamageContext, Boolean> enabled;
     private final @Nullable FieldValue<DamageContext, Double> baseAmount;
     private final @Nullable FieldValue<DamageContext, Integer> invulTicks;
     private final @Nullable FieldValue<DamageContext, Boolean> overdamage;
-    private final @Nullable FieldValue<DamageContext, DamageEvent.OverdamageRule> overdamageRule;
     private final @Nullable FieldValue<DamageContext, Boolean> silent;
     private final @Nullable FieldValue<DamageContext, Boolean> overdamageSilent;
     private final @Nullable FieldValue<DamageContext, Boolean> triggersInvul;
@@ -35,10 +34,10 @@ public class DamageTypeConfig {
 
     protected DamageTypeConfig(Builder b) {
         this.key = b.key;
+        this.enabled = b.enabled;
         this.baseAmount = b.baseAmount;
         this.invulTicks = b.invulTicks;
         this.overdamage = b.overdamage;
-        this.overdamageRule = b.overdamageRule;
         this.silent = b.silent;
         this.overdamageSilent = b.overdamageSilent;
         this.triggersInvul = b.triggersInvul;
@@ -48,6 +47,16 @@ public class DamageTypeConfig {
 
     /** Identity of the type this config applies to. */
     public Key key() { return key; }
+
+    /**
+     * Whether this damage type applies at all in the resolved scope (defaults to {@code true}).
+     * Resolved per victim through the config chain, so a profile can switch a type off per
+     * player/instance/global without touching its producer.
+     */
+    public boolean enabled(DamageContext ctx) {
+        Boolean v = resolve(enabled, ctx);
+        return v == null || v;
+    }
 
     /** Default damage amount for this context, or {@code null} (treated as 0) when a snapshot doesn't override it. */
     public @Nullable Double baseAmount(DamageContext ctx) { return resolve(baseAmount, ctx); }
@@ -60,9 +69,6 @@ public class DamageTypeConfig {
 
     /** Per-type overdamage (damage-replacement), or {@code null} to inherit {@link DamageConfig#enableOverdamage}. */
     public @Nullable Boolean overdamage(DamageContext ctx) { return resolve(overdamage, ctx); }
-
-    /** Per-type overdamage behavior, or {@code null} to inherit {@link DamageConfig#overdamageRule}. */
-    public @Nullable DamageEvent.OverdamageRule overdamageRule(DamageContext ctx) { return resolve(overdamageRule, ctx); }
 
     /** Per-type silent-damage (no hurt animation) for all hits, or {@code null} to inherit {@link DamageConfig#silent}. */
     public @Nullable Boolean silent(DamageContext ctx) { return resolve(silent, ctx); }
@@ -92,10 +98,10 @@ public class DamageTypeConfig {
     public DamageTypeConfig fromBase(DamageTypeConfig base) {
         Builder b = new Builder();
         b.key = key != null ? key : base.key;
+        b.enabled = mergeFv(enabled, base.enabled);
         b.baseAmount = mergeFv(baseAmount, base.baseAmount);
         b.invulTicks = mergeFv(invulTicks, base.invulTicks);
         b.overdamage = mergeFv(overdamage, base.overdamage);
-        b.overdamageRule = mergeFv(overdamageRule, base.overdamageRule);
         b.silent = mergeFv(silent, base.silent);
         b.overdamageSilent = mergeFv(overdamageSilent, base.overdamageSilent);
         b.triggersInvul = mergeFv(triggersInvul, base.triggersInvul);
@@ -122,10 +128,10 @@ public class DamageTypeConfig {
     /** Plain builder for the common knobs. Subclass builders compose one of these and delegate to it. */
     public static class Builder {
         private Key key;
+        private FieldValue<DamageContext, Boolean> enabled;
         private FieldValue<DamageContext, Double> baseAmount;
         private FieldValue<DamageContext, Integer> invulTicks;
         private FieldValue<DamageContext, Boolean> overdamage;
-        private FieldValue<DamageContext, DamageEvent.OverdamageRule> overdamageRule;
         private FieldValue<DamageContext, Boolean> silent;
         private FieldValue<DamageContext, Boolean> overdamageSilent;
         private FieldValue<DamageContext, Boolean> triggersInvul;
@@ -137,10 +143,10 @@ public class DamageTypeConfig {
         /** Copies every common field (and subConfig/key) from {@code src} into this builder. */
         public Builder copyFrom(DamageTypeConfig src) {
             this.key = src.key;
+            this.enabled = src.enabled;
             this.baseAmount = src.baseAmount;
             this.invulTicks = src.invulTicks;
             this.overdamage = src.overdamage;
-            this.overdamageRule = src.overdamageRule;
             this.silent = src.silent;
             this.overdamageSilent = src.overdamageSilent;
             this.triggersInvul = src.triggersInvul;
@@ -148,6 +154,10 @@ public class DamageTypeConfig {
             this.subConfig = src.subConfig;
             return this;
         }
+
+        public Builder enabled(Boolean v) { enabled = FieldValue.constant(v); return this; }
+        public Builder enabled(Function<DamageContext, Boolean> fn) { enabled = FieldValue.of(fn); return this; }
+        public Builder enabled(Boolean fallback, Function<DamageContext, Boolean> fn) { enabled = FieldValue.ofWithFallback(fallback, fn); return this; }
 
         public Builder baseAmount(Double v) { baseAmount = FieldValue.constant(v); return this; }
         public Builder baseAmount(Function<DamageContext, Double> fn) { baseAmount = FieldValue.of(fn); return this; }
@@ -160,10 +170,6 @@ public class DamageTypeConfig {
         public Builder overdamage(Boolean v) { overdamage = FieldValue.constant(v); return this; }
         public Builder overdamage(Function<DamageContext, Boolean> fn) { overdamage = FieldValue.of(fn); return this; }
         public Builder overdamage(Boolean fallback, Function<DamageContext, Boolean> fn) { overdamage = FieldValue.ofWithFallback(fallback, fn); return this; }
-
-        public Builder overdamageRule(DamageEvent.OverdamageRule v) { overdamageRule = FieldValue.constant(v); return this; }
-        public Builder overdamageRule(Function<DamageContext, DamageEvent.OverdamageRule> fn) { overdamageRule = FieldValue.of(fn); return this; }
-        public Builder overdamageRule(DamageEvent.OverdamageRule fallback, Function<DamageContext, DamageEvent.OverdamageRule> fn) { overdamageRule = FieldValue.ofWithFallback(fallback, fn); return this; }
 
         public Builder silent(Boolean v) { silent = FieldValue.constant(v); return this; }
         public Builder silent(Function<DamageContext, Boolean> fn) { silent = FieldValue.of(fn); return this; }

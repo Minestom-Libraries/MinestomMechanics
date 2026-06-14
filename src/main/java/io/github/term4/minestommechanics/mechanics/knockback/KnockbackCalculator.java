@@ -12,6 +12,11 @@ import net.minestom.server.entity.Entity;
 import org.jetbrains.annotations.Nullable;
 
 /** Computes the knockback vector for a snapshot: directions, strengths, friction fold, bounds, components. */
+// TODO(stages): make each built-in stage a replaceable strategy (the VelocityRule/CriticalRule pattern,
+//  config knobs like frictionRule/combineRule/boundsRule with the current math as DEFAULT). Custom
+//  components are append-only POST-stages - they cannot run between built-ins, which forces presets to
+//  zero a knob and re-emulate the stage (Minemen frictionH=0 + axialFriction) and caused the range-cap vs
+//  axial-drag ordering bug. Same idea applies to DamageCalculator's stages.
 public final class KnockbackCalculator {
 
     private final Services services;
@@ -71,7 +76,12 @@ public final class KnockbackCalculator {
 
         double iFH = frictionCoeff(or(cfg.frictionH(), 0), cfg.frictionModeH());
         double iFV = frictionCoeff(or(cfg.frictionV(), 0), cfg.frictionModeV());
-        VelocityRule velRule = cfg.velocity() != null ? cfg.velocity() : VelocityRule.DEFAULT;
+        // Velocity tracking method, resolved ONCE here: KnockbackConfig override -> the victim's scoped profile
+        // velocity (MechanicsProfile.velocity, where presets set it) -> VelocityRule.DEFAULT. The resolved rule is
+        // threaded onto the component context below so a custom component reads the SAME velocity (ctx.victimVelocity()).
+        VelocityRule velRule = cfg.velocity();
+        if (velRule == null) velRule = services.profiles().velocityFor(t);
+        if (velRule == null) velRule = VelocityRule.DEFAULT;
         Vec vel = velRule.estimate(VelocityContext.of(t, services.sprintTracker()));
 
         kb = new Vec(vel.x() * iFH + kb.x(), vel.y() * iFV + kb.y(), vel.z() * iFH + kb.z());
@@ -86,10 +96,13 @@ public final class KnockbackCalculator {
             if (cfg.extraVerticalBounds() != null) kbVec = applyVerticalBounds(kbVec, cfg.extraVerticalBounds());
         }
 
-        // Custom knockback components
+        // Custom knockback components. They run on a context carrying the resolved velocity rule, so a component
+        // (e.g. Minemen's axial drag / cap-hold) reads ctx.victimVelocity() - the same velocity folded above -
+        // instead of pinning a rule onto the config.
         if (cfg.customComponents() != null) {
+            KnockbackConfigResolver.KnockbackContext compCtx = ctx.withVelocity(velRule);
             for (KnockbackComponent comp : cfg.customComponents()) {
-                Vec out = comp.apply(ctx, kbVec);
+                Vec out = comp.apply(compCtx, kbVec);
                 if (out != null) kbVec = out;
             }
         }

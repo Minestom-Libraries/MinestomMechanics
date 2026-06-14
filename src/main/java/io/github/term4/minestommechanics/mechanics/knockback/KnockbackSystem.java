@@ -5,6 +5,7 @@ import io.github.term4.minestommechanics.MinestomMechanics;
 import io.github.term4.minestommechanics.Services;
 import io.github.term4.minestommechanics.api.event.KnockbackEvent;
 import io.github.term4.minestommechanics.mechanics.Vanilla18;
+import io.github.term4.minestommechanics.util.LegacyVelocity;
 import net.minestom.server.coordinate.Vec;
 import net.minestom.server.entity.Entity;
 import net.minestom.server.event.Event;
@@ -74,10 +75,19 @@ public final class KnockbackSystem {
             }
         }
 
-        // Apply knockback to target
+        // Apply knockback to target. Vanilla broadcasts the KB vector to the client but RESTORES the victim's
+        // pre-knockback server velocity (EntityHuman.attack saves motX/Y/Z, lets a() overwrite + broadcast, then
+        // restores), so the knockback is NOT folded into the next hit - the tracker is deliberately not told about it.
+        // quantizeVelocity (default on) sends what a 1.8 server's wire encoding would have produced.
+        // TODO(perf/structure): the config is resolved twice per hit (calc.compute resolves internally, and
+        //  again here for quantizeVelocity). Fold into one resolution when the event layer is restructured
+        //  (planned: PreDamageEvent / DamageModifyEvent / FinalDamageEvent), e.g. compute() consuming a
+        //  pre-resolved config carried by the event.
         if (velocity != null) {
             Entity target = finalSnap.target();
-            target.setVelocity(velocity);
+            KnockbackSnapshot cfgSnap = finalSnap.config() != null ? finalSnap : finalSnap.withConfig(configFor(target));
+            boolean quantize = !Boolean.FALSE.equals(calc.resolveConfig(cfgSnap).quantizeVelocity());
+            target.setVelocity(quantize ? LegacyVelocity.snap(velocity) : velocity);
         }
     }
 
