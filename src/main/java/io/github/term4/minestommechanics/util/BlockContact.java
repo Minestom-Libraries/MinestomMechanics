@@ -24,7 +24,7 @@ import java.util.function.Predicate;
  * </ul>
  *
  * <p>Uses Minestom's {@link BoundingBox#getBlocks(Point)} for the cell walk and
- * {@link Block#registry()#collisionShape()} for shape tests. Unloaded chunks and out-of-range Y
+ * {@code Block.registry().collisionShape()} for shape tests. Unloaded chunks and out-of-range Y
  * are skipped.
  */
 public final class BlockContact {

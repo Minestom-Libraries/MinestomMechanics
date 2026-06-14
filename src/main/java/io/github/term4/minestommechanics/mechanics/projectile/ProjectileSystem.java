@@ -85,6 +85,7 @@ public final class ProjectileSystem {
         entity.setSynchronizationTicks(flight.syncInterval());
         entity.setShooterImmunityTicks(flight.shooterImmunityTicks());
         entity.setEntityHitGrow(flight.entityHitGrow());
+        entity.setBlockCollision(flight.blockCollision());
         // Arrow-specific pickup geometry (resolved once at launch); the entity keeps its vanilla default if unset.
         if (entity instanceof io.github.term4.minestommechanics.mechanics.projectile.entities.ArrowEntity arrow) {
             ProjectileTypeConfig.PickupBox pb = effectiveConfig.pickupBox(ctx);

@@ -60,6 +60,21 @@ public final class ProjectileTypeConfig {
     public enum HitResponse { HIT, PASS_THROUGH, DEFLECT, DESTROY }
 
     /**
+     * How the projectile detects BLOCK hits in flight - a flight knob, stamped on the entity at launch and read per
+     * tick (orthogonal to the shared entity-hit + stick machinery):
+     * <ul>
+     *   <li>{@link #SWEPT} (default) - Minestom's swept-box physics ({@code CollisionUtils.handlePhysics}). The modern
+     *       (1.21+) client's own collision matches it, so the modern preset keeps this.</li>
+     *   <li>{@link #RAYTRACE} - a 1.8-faithful voxel raytrace of {@code position -> position + velocity} against block
+     *       collision shapes, replicating vanilla 1.8's {@code World.rayTrace} (the ray the 1.8 client runs each tick in
+     *       {@code EntityArrow.t_} / {@code EntityProjectile.t_}). A 1.8-PvP server (clients through Via) sets this so
+     *       block hits agree with the client 1:1 at block EDGES, where the swept box and the client's ray disagree
+     *       (the old "F8" brief false-stick). Implemented by {@code BlockRaytrace}.</li>
+     * </ul>
+     */
+    public enum BlockCollisionMode { SWEPT, RAYTRACE }
+
+    /**
      * Pickup geometry for a collectable projectile (arrows). A projectile is collected when its {@code boxWidth x
      * boxHeight} box intersects a player's bounding box inflated by {@code (inflateH, inflateV, inflateH)} - the exact
      * vanilla test ({@code Player#aiStep} / 1.8 {@code EntityHuman}: {@code grow(1, 0.5, 1)}; arrow box
@@ -87,6 +102,9 @@ public final class ProjectileTypeConfig {
     /** Entity-hit margin: the target's bbox grows by this on EACH side for the hit ray-test (vanilla 1.8 {@code 0.3}
      *  for arrows + throwables); a flight knob, stamped on the entity and read per-tick. */
     private final @Nullable FieldValue<ProjectileContext, Double> entityHitGrow;
+    /** How block hits are detected ({@link BlockCollisionMode}; default {@code SWEPT}). Vanilla 1.8 = {@code RAYTRACE}
+     *  for 1:1 block-edge agreement with a 1.8 client; a flight knob, stamped on the entity and read per-tick. */
+    private final @Nullable FieldValue<ProjectileContext, BlockCollisionMode> blockCollision;
     /** What the projectile does when it hits its own shooter ({@link HitResponse}; default {@code HIT} = vanilla). */
     private final @Nullable FieldValue<ProjectileContext, HitResponse> selfHit;
     private final @Nullable FieldValue<ProjectileContext, Integer> syncInterval;
@@ -118,6 +136,7 @@ public final class ProjectileTypeConfig {
         this.inheritMomentum = b.inheritMomentum;
         this.shooterImmunityTicks = b.shooterImmunityTicks;
         this.entityHitGrow = b.entityHitGrow;
+        this.blockCollision = b.blockCollision;
         this.selfHit = b.selfHit;
         this.syncInterval = b.syncInterval;
         this.knockback = b.knockback;
@@ -146,6 +165,7 @@ public final class ProjectileTypeConfig {
     public @Nullable Boolean inheritMomentum(ProjectileContext ctx) { return resolve(inheritMomentum, ctx); }
     public @Nullable Integer shooterImmunityTicks(ProjectileContext ctx) { return resolve(shooterImmunityTicks, ctx); }
     public @Nullable Double entityHitGrow(ProjectileContext ctx) { return resolve(entityHitGrow, ctx); }
+    public @Nullable BlockCollisionMode blockCollision(ProjectileContext ctx) { return resolve(blockCollision, ctx); }
     public @Nullable HitResponse selfHit(ProjectileContext ctx) { return resolve(selfHit, ctx); }
     public @Nullable Integer syncInterval(ProjectileContext ctx) { return resolve(syncInterval, ctx); }
     public @Nullable KnockbackConfig knockback(ProjectileContext ctx) { return resolve(knockback, ctx); }
@@ -174,6 +194,7 @@ public final class ProjectileTypeConfig {
         b.inheritMomentum = mergeFv(inheritMomentum, base.inheritMomentum);
         b.shooterImmunityTicks = mergeFv(shooterImmunityTicks, base.shooterImmunityTicks);
         b.entityHitGrow = mergeFv(entityHitGrow, base.entityHitGrow);
+        b.blockCollision = mergeFv(blockCollision, base.blockCollision);
         b.selfHit = mergeFv(selfHit, base.selfHit);
         b.syncInterval = mergeFv(syncInterval, base.syncInterval);
         b.knockback = mergeFv(knockback, base.knockback);
@@ -226,6 +247,7 @@ public final class ProjectileTypeConfig {
         private FieldValue<ProjectileContext, Boolean> inheritMomentum;
         private FieldValue<ProjectileContext, Integer> shooterImmunityTicks;
         private FieldValue<ProjectileContext, Double> entityHitGrow;
+        private FieldValue<ProjectileContext, BlockCollisionMode> blockCollision;
         private FieldValue<ProjectileContext, HitResponse> selfHit;
         private FieldValue<ProjectileContext, Integer> syncInterval;
         private FieldValue<ProjectileContext, KnockbackConfig> knockback;
@@ -255,6 +277,7 @@ public final class ProjectileTypeConfig {
             inheritMomentum = c.inheritMomentum;
             shooterImmunityTicks = c.shooterImmunityTicks;
             entityHitGrow = c.entityHitGrow;
+            blockCollision = c.blockCollision;
             selfHit = c.selfHit;
             syncInterval = c.syncInterval;
             knockback = c.knockback;
@@ -302,6 +325,10 @@ public final class ProjectileTypeConfig {
         /** Entity-hit margin: grow the target's bbox by this on each side for the hit ray-test (vanilla 1.8 {@code 0.3}). */
         public Builder entityHitGrow(Double v) { entityHitGrow = FieldValue.constant(v); return this; }
         public Builder entityHitGrow(Function<ProjectileContext, Double> fn) { entityHitGrow = FieldValue.of(fn); return this; }
+        /** How block hits are detected ({@link BlockCollisionMode}; default {@code SWEPT}). Vanilla 1.8 sets
+         *  {@code RAYTRACE} for 1:1 block-edge agreement with a 1.8 client. */
+        public Builder blockCollision(BlockCollisionMode v) { blockCollision = FieldValue.constant(v); return this; }
+        public Builder blockCollision(Function<ProjectileContext, BlockCollisionMode> fn) { blockCollision = FieldValue.of(fn); return this; }
         /** What the projectile does when it hits its own shooter ({@link HitResponse}, default {@code HIT}):
          *  {@code PASS_THROUGH} = the 1.8 ender pearl / Hypixel "self does nothing"; {@code DEFLECT} = bounce off. */
         public Builder selfHit(HitResponse v) { selfHit = FieldValue.constant(v); return this; }

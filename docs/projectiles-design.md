@@ -173,7 +173,10 @@ working) projectile impl to port from: `C:\Users\Gabriel\Documents\GitHub\minest
   physics, block stick (movement frozen, but a vanilla-style periodic `resyncStuck()` re-assert - NOT radio silence,
   see status "STUCK-ARROW 1.8 DESYNC"), entity hits, absolute-teleport sync, viewer spawn. Velocity is **b/t
   internally** (`velocityBt`), mirrored to `super.velocity` in b/s. The legacy stuck-sync (F7/F8/F12) is no longer
-  needed - the periodic re-assert + modern inGround metadata cover both clients.
+  needed - the periodic re-assert + modern inGround metadata cover both clients. Block-hit detection is a per-type
+  flight knob `blockCollision` (`BlockCollisionMode` `{SWEPT, RAYTRACE}`): `SWEPT` (default) = the `handlePhysics`
+  path; `RAYTRACE` = `entities/BlockRaytrace.java`, a 1.8-faithful voxel raytrace (`world.rayTrace` parity) so a 1.8
+  client agrees 1:1 at block edges. `Vanilla18` = `RAYTRACE`, modern preset = `SWEPT`. See status item 3f.
 - **Config/event layer** (mirrors the damage system exactly): `mechanics/projectile/ProjectileConfig.java`
   (generic `defaults` config + per-type map, presence-enables), `types/ProjectileTypeConfig.java` (ALL per-type
   knobs as `FieldValue`: bbox, aerodynamics, `spawnOffsetH`/`spawnOffsetV` (+ combined `spawnOffset(h,v)`), speed,
@@ -348,12 +351,52 @@ is the one constant knob (pass-through-self) so vanilla stays constant-only. KB 
       ("arrow disappears for shooter / bounces for target"). Now `growSymmetrically(entityHitGrow,...)` from `position`
       (§5). `entityHitGrow` is a per-type `ProjectileTypeConfig` flight knob (default 0.3, stamped at launch). Arrow KB
       is also SHOOTER-relative now (1.8 `damageEntity` knocks from `DamageSource.arrow.getEntity()` = the shooter).
-   d. **Deflection + pass-through 1:1 - DONE.** Arrow deflect-on-invuln: a hit that deals no damage (invuln victim)
-      bounces (`motion *= -0.1`) instead of breaking - `deflectOnInvuln` hit knob (arrow `true`, throwables `false`);
-      `ManagedProjectile.deflect()` does `-0.1` + re-arms shooter immunity (vanilla `as = 0`) + clamps the placement to
-      the hit point (no overshoot before the bounce). Pearl pass-through verified 1:1 (1.8 `EntityEnderPearl.a`:
-      `if (hit == shooter) return;` = our `selfHit(PASS_THROUGH)`). Remaining smaller items: 1200-tick stuck despawn;
-      Power/Punch/Flame enchants; offhand/Infinity arrow selection; draw-gate on having arrows.
+   d. **Invuln-hit response + deflection + pass-through 1:1 - DONE.** When a projectile's hit is BLOCKED (target
+      invulnerable / creative), the response is the `invulnHit` config knob (`HitResponse` {HIT, PASS_THROUGH, DEFLECT,
+      DESTROY}, the same enum as `selfHit`): vanilla arrows `DEFLECT` (bounce `motion *= -0.1`), throwables `DESTROY`
+      (break/effect, like their `die()`). This REPLACED the ad-hoc `deflectOnInvuln` boolean (kept types config-free;
+      vanilla values live in `Vanilla18.arrow()`/`projectileDefaults()`). "Bypass" is deliberately NOT a projectile
+      response - it's the damage type's `bypassInvul` (a bypassing type makes the hit LAND, never reaching `invulnHit`).
+      `deflect()` does `-0.1` + re-arms shooter immunity (vanilla `as = 0`) + clamps placement to the hit point (no
+      overshoot). **CREATIVE FIX:** `DamageSystem.apply` now treats CREATIVE/SPECTATOR targets as invulnerable
+      (BLOCKED) - they took KB + arrows never deflected before, because `apply` had no game-mode check (only the
+      environmental producers did). Pearl pass-through verified 1:1 (1.8 `EntityEnderPearl.a`: `if (hit == shooter)
+      return;` = `selfHit(PASS_THROUGH)`); **pearl yaw fix** - the teleport keeps the shooter's view (vanilla
+      `enderTeleportTo` is x/y/z only; was overwriting yaw with the pearl's flight rotation). Remaining: 1200-tick
+      despawn; Power/Punch/Flame; offhand/Infinity selection; draw-gate.
+   e. **Post-stick 0.05 pull-back + flight-sync throttle (O1) - DONE.** Stick now pulls the arrow back 0.05 along the
+      flight direction (vanilla 1.8 `locX -= motX/|mot|*0.05`; 26.1 per-axis) so the tip pokes out of the block face -
+      `stuckPlacement`. (No visible "nudge" - the 1.8 client pulls back 0.05 itself, so client + server agree; the
+      vanilla nudge was a disagreement artifact we don't reproduce.) O1: in-flight `synchronizePosition` sends the
+      absolute teleport only every `syncInterval` (velocity still every tick via `Entity.tick`) - user-confirmed no
+      stuttering.
+   f. **EDGE-HIT desync (1.8 client over-predicts block-edge hits) - LEGACY-COLLISION-MODE BUILT (this session).**
+      1.8 clients detect block hits with a per-tick RAYTRACE (`world.rayTrace`, `EntityArrow.t_` / `EntityProjectile.t_`),
+      run locally during flight; our server used Minestom swept-box physics. At block edges they disagree (corner
+      precision + the client predicting the whole flight before any sync), so a 1.8 client briefly false-sticks then
+      gets dragged back - the old "known-broken" F8. The server has ONE authoritative position, so the fix is to make
+      the SERVER detect block hits the same way the 1.8 client does. **Built:** a per-type `blockCollision` flight knob
+      (`ProjectileTypeConfig.BlockCollisionMode` `{SWEPT, RAYTRACE}`), wired exactly like `entityHitGrow` (config field
+      -> `ResolvedFlight` -> `ProjectileSystem.launch` stamps `entity.setBlockCollision(...)` -> `ProjectileEntity`
+      field + branch in `movementTick`'s block-stick section). `SWEPT` (resolver default; modern preset) = the
+      unchanged `handlePhysics` path. `RAYTRACE` = `entities/BlockRaytrace.java`: walks the voxels of
+      `position -> position + velocityBt` with the native `BlockIterator` and ray-clips each block's real collision
+      AABBs (from `ShapeImpl.boundingBoxes()`, so slabs/stairs/fences use their actual shape, like 1.8's
+      `block.a(world, pos)`), returning the closest entry (block + point + axis) -> the existing
+      `stick(block, hitPoint, axis, hitPoint)` (vanilla places at the ray hit point, then the 0.05 pull-back). In
+      RAYTRACE mode the swept STICK result is ignored and a clear ray flies the full move (`newPosition = pos + vel`),
+      but the swept `physics` is still computed to bound the entity sweep (no through-wall entity hits) - so entity-hit
+      behavior is identical to SWEPT. `Vanilla18.projectileDefaults()` sets `RAYTRACE` preset-wide (1.8 raytraces ALL
+      projectiles, arrows + throwables); `Minemen`/`Hypixel` re-base from it, so the test server gets it.
+      **Implementation notes:** (1) couldn't reuse Minestom's `Shape.intersectBoxSwept` for the hit point/face -
+      `SweepResult`'s fields are package-private to `net.minestom.server.collision` - hence the self-contained slab
+      ray-AABB clip. (2) Not bit-identical to 1.8 (standard slab clip + Minestom's modern block shapes, not 1.8's), but
+      same point-ray against the same geometry, so far closer to the client than the swept box at edges. (3) An arrow
+      whose origin is INSIDE a block isn't re-detected (clip requires entry from outside, `tmin >= 0`) - a non-issue
+      since the player hitbox keeps the spawn ~0.3 off any wall, so point-blank shots still enter from outside.
+      **To scope down** (if throwables misbehave): move `.blockCollision(RAYTRACE)` from `projectileDefaults()` to
+      `arrow()`. **User tests:** edge shots into block corners/slabs/fences on a 1.8 client (via Via) - the arrow
+      should stick where the client predicts, no false-stick-then-drag; verify throwables still break on walls.
    e. **Post-stick 0.05 pull-back + flight-sync throttle (O1) - DONE.** Stick now pulls the arrow back 0.05 along the
       flight direction (vanilla 1.8 `locX -= motX/|mot|*0.05`; 26.1 per-axis) so the tip pokes out of the block face -
       `stuckPlacement`. This may also reproduce the 1.8 "small nudge a few ticks after sticking" (client prediction vs
@@ -468,6 +511,7 @@ IMPACT** against a context that carries the target, so plain config lambdas expr
 | Self-hit (pearl) | pass-through | self-teleport | `selfHits(false)` + hit-knob lambdas on `ctx.isSelfHit()` |
 | Shooter immunity | 5 ticks | `leftOwner` (geometric) | `shooterImmunityTicks` (leftOwner = TODO) |
 | Physics order | post-move drag/grav | pre-move grav/inertia | **TODO** (hardcoded post-move) |
+| Block collision | per-tick `world.rayTrace` | swept AABB (server-auth) | `blockCollision` {SWEPT, RAYTRACE} (1.8 = RAYTRACE) |
 | Pearl dmg type | FALL, 5 | `enderPearl`, 5 | amount yes; type = TODO (GenericDamage stand-in) |
 | Pearl teleport target | pre-move pos | `oldPosition()` | ~same (pre-move) |
 | Sync interval | n/a here | `updateInterval(10)` | `syncInterval` (ours 20) |

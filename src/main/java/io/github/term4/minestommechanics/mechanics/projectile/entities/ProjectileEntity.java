@@ -1,5 +1,6 @@
 package io.github.term4.minestommechanics.mechanics.projectile.entities;
 
+import io.github.term4.minestommechanics.mechanics.projectile.types.ProjectileTypeConfig.BlockCollisionMode;
 import net.minestom.server.ServerFlag;
 import net.minestom.server.collision.Aerodynamics;
 import net.minestom.server.collision.CollisionUtils;
@@ -52,7 +53,7 @@ public abstract class ProjectileEntity extends Entity {
      *  on EACH side and ray-test the projectile's center path. The Minkowski-equivalent is to grow our zero-size
      *  projectile box by 0.3 on each side (target+0.3 vs an arrow point == target vs an arrow point grown 0.3), i.e. a
      *  0.6-cube centered on the projectile. NOTE Minestom's {@code expand(0.3)} only adds 0.3 to the TOTAL size (±0.15)
-     *  and offsets y - use {@link BoundingBox#growSymmetrically} which adds the amount to BOTH sides (±0.3, centered).
+     *  and offsets y - use {@code BoundingBox.growSymmetrically} which adds the amount to BOTH sides (±0.3, centered).
      *  The old {@code expand(0.1,0.3,0.1)} from {@code pos-0.3} reached only ~0.45 to the side, so arrows the 1.8 CLIENT
      *  predicts as a hit flew right by on the server -> the "arrow disappears for shooter / bounces for target" desync.
      *  Per-type override: {@code ProjectileTypeConfig.entityHitGrow} (26.1's modern preset uses a different margin). */
@@ -65,6 +66,9 @@ public abstract class ProjectileEntity extends Entity {
     private long shooterImmuneUntilAlive;
     /** Entity-hit margin grown onto the target on each side (configurable per type; stamped by the launcher). */
     protected double entityHitGrow = DEFAULT_ENTITY_HIT_GROW;
+    /** Block-hit detection method (configurable per type; stamped by the launcher). {@code SWEPT} = Minestom physics
+     *  (default); {@code RAYTRACE} = 1.8-faithful ray for 1.8-client edge agreement - see {@link BlockRaytrace}. */
+    protected BlockCollisionMode blockCollision = BlockCollisionMode.SWEPT;
     /** Velocity in blocks/tick (library convention; {@code super.velocity} mirrors b/s). */
     protected Vec velocityBt = Vec.ZERO;
     /** Shooter position + view at launch, for knockback origin (vanilla uses the shooter, not the projectile). */
@@ -149,6 +153,9 @@ public abstract class ProjectileEntity extends Entity {
     /** Sets the entity-hit margin grown onto the target on each side (launcher applies the resolved config). */
     public void setEntityHitGrow(double grow) { this.entityHitGrow = grow; }
 
+    /** Sets the block-hit detection method (launcher applies the resolved config; vanilla 1.8 = {@code RAYTRACE}). */
+    public void setBlockCollision(BlockCollisionMode mode) { this.blockCollision = mode; }
+
     /** Re-arms shooter immunity for another {@link #shooterImmunityTicks} (vanilla {@code as = 0} after a deflect, so
      *  a bounced-back arrow can't instantly re-hit the shooter / loop on a self-deflect). */
     protected void rearmShooterImmunity() { this.shooterImmuneUntilAlive = getAliveTicks() + shooterImmunityTicks; }
@@ -205,11 +212,17 @@ public abstract class ProjectileEntity extends Entity {
         }
 
         // --- Block physics (swept) ---
+        // Always run the swept physics: SWEPT mode sticks on it, and BOTH modes use it to bound the entity sweep below
+        // (so an arrow can't hit an entity through a wall). In RAYTRACE mode the swept STICK decision is ignored - the
+        // 1.8-faithful ray (BlockRaytrace, below) owns block hits - and the arrow flies the full move when the ray is
+        // clear, so newPosition is position + velocity (world-border-clamped), not the swept-clipped position.
+        boolean raytrace = blockCollision == BlockCollisionMode.RAYTRACE;
         ChunkCache blockGetter = new ChunkCache(instance, currentChunk, Block.AIR);
         PhysicsResult physics = CollisionUtils.handlePhysics(
                 blockGetter, getBoundingBox(), position, velocityBt, previousPhysicsResult, true);
         this.previousPhysicsResult = physics;
-        Pos newPosition = CollisionUtils.applyWorldBorder(instance.getWorldBorder(), position, physics.newPosition());
+        Pos newPosition = CollisionUtils.applyWorldBorder(instance.getWorldBorder(), position,
+                raytrace ? position.add(velocityBt) : physics.newPosition());
 
         // --- Entity collision (swept alongside the block physics) ---
         // Vanilla 1.8: grow the TARGET by 0.3 on each side and ray-test the projectile's center path; we do the
@@ -241,8 +254,18 @@ public abstract class ProjectileEntity extends Entity {
 
         this.justBecameStuck = false;
 
-        // --- Block stick: per-axis collision shape -> hit block / point / axis ---
-        if (physics.hasCollision()) {
+        // --- Block stick: hit block / point / axis (per the configured detection method) ---
+        if (raytrace) {
+            // 1.8-faithful: raytrace position -> position + velocity against block collision shapes (BlockRaytrace).
+            // Place at the exact ray hit point (vanilla 1.8 sets locXYZ to movingobjectposition.pos), then stick()
+            // applies the same 0.05 flight-direction pull-back as vanilla.
+            BlockRaytrace.Hit hit = BlockRaytrace.cast(instance, currentChunk, position, velocityBt);
+            if (hit != null) {
+                stick(hit.block(), hit.point(), hit.axis(), hit.point().asPos());
+                if (isRemoved() || pendingRemove) return; // breaker: stop physics, removal happens in tick()
+            }
+        } else if (physics.hasCollision()) {
+            // SWEPT: per-axis Minestom collision shape -> hit block / point / axis.
             for (int axis = 0; axis < 3; axis++) {
                 if (physics.collisionShapes()[axis] instanceof ShapeImpl) {
                     Point hitPoint = physics.collisionPoints()[axis];
@@ -260,7 +283,9 @@ public abstract class ProjectileEntity extends Entity {
                 .mul(aero.horizontalAirResistance(), aero.verticalAirResistance(), aero.horizontalAirResistance())
                 .sub(0, hasNoGravity() ? 0 : aero.gravity(), 0);
         if (!justBecameStuck) this.velocity = velocityBt.mul(ServerFlag.SERVER_TICKS_PER_SECOND);
-        this.onGround = physics.isOnGround();
+        // In RAYTRACE free-flight the arrow didn't stop on a block this tick (a hit returns above), so it's airborne;
+        // the swept physics' onGround (a clipped floor it ignored) would be misleading.
+        this.onGround = !raytrace && physics.isOnGround();
 
         // --- Rotation: displacement-based; latched at impact when sticking ---
         float yaw = prevYaw, pitch = prevPitch;

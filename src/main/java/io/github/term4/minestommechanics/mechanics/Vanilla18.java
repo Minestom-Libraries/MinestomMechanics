@@ -90,6 +90,11 @@ public final class Vanilla18 {
                 // Entity-hit margin: 1.8 grows the TARGET's bbox by 0.3 on each side and ray-tests the flight path
                 // (Entity{Arrow,Projectile}: f=0.3F). Too-tight here = arrows the 1.8 client predicts as a hit fly past.
                 .entityHitGrow(0.3)
+                // 1.8 detects block hits with a per-tick raytrace (world.rayTrace), run locally by the client during
+                // flight; matching it on the server makes block hits agree with a 1.8 client 1:1 at block EDGES, where
+                // Minestom's swept box and the client's ray disagree (the old "F8" false-stick). Applies to all 1.8
+                // projectiles - both EntityArrow.t_ and EntityProjectile.t_ raytrace. The modern preset uses SWEPT.
+                .blockCollision(ProjectileTypeConfig.BlockCollisionMode.RAYTRACE)
                 .syncInterval(20)
                 // Vanilla snowball/egg/pearl push from the THROWER (damageEntity uses the source entity), not the
                 // projectile; melee=false so no sprint "extra" knockback applies.

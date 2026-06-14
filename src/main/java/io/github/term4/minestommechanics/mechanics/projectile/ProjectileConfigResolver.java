@@ -98,7 +98,9 @@ public final class ProjectileConfigResolver {
                 or(tc.inheritMomentum(ctx), Boolean.FALSE), // vanilla 1.8 throwables add NO shooter momentum
                 or(tc.shooterImmunityTicks(ctx), 5),
                 or(tc.entityHitGrow(ctx), 0.3), // vanilla 1.8 Entity{Arrow,Projectile}: target grow 0.3 each side
-                or(tc.syncInterval(ctx), 20));
+                or(tc.syncInterval(ctx), 20),
+                // SWEPT (Minestom physics) unless a preset opts into the 1.8-faithful ray (Vanilla 1.8 -> RAYTRACE).
+                or(tc.blockCollision(ctx), ProjectileTypeConfig.BlockCollisionMode.SWEPT));
     }
 
     /** Resolves the HIT knobs at impact from the effective type config against the impact {@code ctx}. */
@@ -134,7 +136,8 @@ public final class ProjectileConfigResolver {
             boolean inheritMomentum,
             int shooterImmunityTicks,
             double entityHitGrow,
-            int syncInterval
+            int syncInterval,
+            ProjectileTypeConfig.BlockCollisionMode blockCollision
     ) {}
 
     /** Hit values resolved at impact ({@code knockback}/{@code damageType} nullable). */
