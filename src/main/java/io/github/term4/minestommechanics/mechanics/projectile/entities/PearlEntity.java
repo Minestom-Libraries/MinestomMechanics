@@ -23,21 +23,33 @@ public class PearlEntity extends ManagedProjectile {
     /** Vanilla pearl-landing fall damage dealt to a player shooter. TODO: make configurable (folds into the dedicated pearl/fall type below). */
     private static final float FALL_DAMAGE = 5.0f;
 
+    /** Whether the pearl teleports its shooter across instances; default false (vanilla = same world only). */
+    private boolean crossInstanceTeleport = false;
+
     public PearlEntity(@Nullable Entity shooter, @NotNull EntityType entityType,
                        ProjectileSnapshot snap, ProjectileTypeConfig effectiveConfig) {
         super(shooter, entityType, snap, effectiveConfig);
     }
 
+    /**
+     * Enables teleporting the shooter even when they've left the pearl's instance (stasis chambers); default false matches
+     * vanilla (same-world only). Set per launch off the entity in a {@code ProjectileLaunchEvent} listener.
+     */
+    public void setCrossInstanceTeleport(boolean v) { this.crossInstanceTeleport = v; }
+
     @Override
     protected void onImpact(@Nullable Entity hitEntity) {
         Entity shooter = getShooter();
         if (shooter == null || shooter.isRemoved()) return;
-        // vanilla only teleports when the shooter shares the pearl's world (1.8 entityplayer.world == this.world; 26 same
-        // dimension, else a portal transition - out of scope). A different instance -> the pearl just dies, no teleport.
-        if (shooter.getInstance() != getInstance()) return;
+        // Vanilla only teleports within the pearl's world (1.8 entityplayer.world == this.world; 26 same dimension, else a
+        // portal transition). crossInstanceTeleport (off by default) opts into teleporting a shooter who has since left.
+        boolean sameInstance = shooter.getInstance() == getInstance();
+        if (!sameInstance && (!crossInstanceTeleport || getInstance() == null)) return;
         // teleport to the pearl's impact position, keeping the shooter's own view (not the pearl's flight rotation)
         Pos view = shooter.getPosition();
-        shooter.teleport(getPosition().withView(view.yaw(), view.pitch()));
+        Pos dest = getPosition().withView(view.yaw(), view.pitch());
+        if (sameInstance) shooter.teleport(dest);
+        else shooter.setInstance(getInstance(), dest);
         // zero fallDistance first so the teleport drop adds no extra fall damage
         FallDamage.resetFallDistance(shooter);
         if (shooter instanceof Player) {
