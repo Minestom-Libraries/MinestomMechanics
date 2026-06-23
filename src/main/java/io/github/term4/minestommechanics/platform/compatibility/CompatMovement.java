@@ -46,18 +46,17 @@ public final class CompatMovement {
         Instance instance = player.getInstance();
         if (instance == null || !entersNewCollision(instance, player.getBoundingBox(), from, to)) return;
 
-        if (to.yaw() != from.yaw() || to.pitch() != from.pitch()) {
-            // Rotating move: revert position WITHOUT an absolute-view correction (that drags a predicting client's camera).
-            // refreshPosition(sendPackets=false) mutates getPosition() to trip processMovement's "teleported during event"
-            // early-out silently, so the only packet the client gets is Minemen's exact one below: flags VIEW (yaw/pitch
-            // relative delta-0 = camera kept), absolute position revert, zero delta (momentum killed), id -1 (no gating).
-            // NOT setView - on a Player that is a full absolute-view teleport every tick (the cause of the old drag; see memory).
-            player.refreshPosition(from.withView(to.yaw(), to.pitch()), false, false);
-            player.sendPacket(new PlayerPositionAndLookPacket(-1, from, Vec.ZERO, 0f, 0f, (byte) RelativeFlags.VIEW));
-        } else {
-            // Non-rotating move: the view is static, so a plain cancel (its snap-back is to the same view) blocks it cleanly.
-            event.setCancelled(true);
-        }
+        // Block the move with a VIEW-relative correction so the camera is never touched: refreshPosition(sendPackets=false)
+        // mutates getPosition() to trip processMovement's "teleported during event" early-out (Minestom then stays silent),
+        // and the manual packet is Minemen's exact one - flags VIEW (yaw/pitch RELATIVE delta-0 = camera kept), absolute
+        // position revert, zero delta (momentum killed), id -1 (no gating). NOT setView and NOT setCancelled: both make
+        // Minestom send an ABSOLUTE-view snap-back that drags a predicting client (setCancelled was the remaining straight-
+        // crawl drag). A non-rotating move has no view delta to trip the early-out, so nudge the server yaw by one ULP -
+        // imperceptible, never reaches the client (the packet's view delta is 0), and reset by the next client look.
+        boolean rotated = to.yaw() != from.yaw() || to.pitch() != from.pitch();
+        float yaw = rotated ? to.yaw() : Math.nextUp(from.yaw());
+        player.refreshPosition(from.withView(yaw, to.pitch()), false, false);
+        player.sendPacket(new PlayerPositionAndLookPacket(-1, from, Vec.ZERO, 0f, 0f, (byte) RelativeFlags.VIEW));
     }
 
     /**

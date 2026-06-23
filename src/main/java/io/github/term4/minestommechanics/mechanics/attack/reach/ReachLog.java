@@ -36,7 +36,7 @@ public final class ReachLog {
 
         int protocol = clientInfo.getProtocol(attacker);
         boolean legacy = protocol != ClientInfoTracker.UNKNOWN_PROTOCOL && protocol <= ClientInfoTracker.LEGACY_PROTOCOL_MAX;
-        double[] eyes = legacy ? new double[]{1.62, 1.54} : new double[]{1.62, 1.27};
+        double[] eyes = ClientEye.candidates(protocol); // client-perceived eye candidates; min taken so swim/crawl needn't be detected
         double pad = legacy ? 0.1 : 0.0; // 1.8 attackers see a 0.1-grown box (modern stays exact until the attack-box compat lands)
 
         BoundingBox bb = target.getBoundingBox();
