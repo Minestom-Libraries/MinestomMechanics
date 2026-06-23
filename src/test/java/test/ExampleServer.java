@@ -4,6 +4,7 @@ import io.github.term4.minestommechanics.MechanicsProfile;
 import io.github.term4.minestommechanics.MinestomMechanics;
 import io.github.term4.minestommechanics.mechanics.Vanilla18;
 import io.github.term4.minestommechanics.mechanics.attack.AttackSystem;
+import io.github.term4.minestommechanics.mechanics.attack.reach.ReachLog;
 import io.github.term4.minestommechanics.mechanics.attribute.AttributeSystem;
 import io.github.term4.minestommechanics.mechanics.damage.DamageSystem;
 import io.github.term4.minestommechanics.mechanics.knockback.KnockbackSystem;
@@ -96,6 +97,7 @@ public class ExampleServer {
 
         // 3. Initialize combat system
         AttackSystem.install(mm, mmc18.atk());
+        ReachLog.install(mm, 4.0); // log reach per hit + synchronously cancel only hits whose lower-bound reach > 4.0 (well above the ~3.6 knockback double-hit artifacts)
 
         // 4. Initialize projectile system
         ProjectileSystem.install(mm, ProjectileConfig.builder(mmc18.projectiles())
@@ -132,6 +134,7 @@ public class ExampleServer {
         mm.profiles().setGlobal(MechanicsProfile.builder()
                 .player(mmc18.player())
                 .velocity(mmc18.velocity())
+                .compat(mmc18.compat())
                 .build());
 
         // Create the instance (world)

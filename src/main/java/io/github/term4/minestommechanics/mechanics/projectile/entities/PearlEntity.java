@@ -10,6 +10,7 @@ import net.minestom.server.coordinate.Pos;
 import net.minestom.server.entity.Entity;
 import net.minestom.server.entity.EntityType;
 import net.minestom.server.entity.Player;
+import net.minestom.server.entity.RelativeFlags;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -45,11 +46,15 @@ public class PearlEntity extends ManagedProjectile {
         // portal transition). crossInstanceTeleport (off by default) opts into teleporting a shooter who has since left.
         boolean sameInstance = shooter.getInstance() == getInstance();
         if (!sameInstance && (!crossInstanceTeleport || getInstance() == null)) return;
-        // teleport to the pearl's impact position, keeping the shooter's own view (not the pearl's flight rotation)
-        Pos view = shooter.getPosition();
-        Pos dest = getPosition().withView(view.yaw(), view.pitch());
-        if (sameInstance) shooter.teleport(dest);
-        else shooter.setInstance(getInstance(), dest);
+        // Teleport to the pearl's impact, keeping the shooter's own look. Same instance: a RELATIVE-view teleport
+        // (yaw/pitch delta 0) so the camera isn't snapped (the pearl's flight rotation never reaches the client). Cross
+        // instance: setInstance can't carry relative flags, so keep the shooter's current view absolutely.
+        if (sameInstance) {
+            shooter.teleport(getPosition().withView(0f, 0f), null, RelativeFlags.VIEW);
+        } else {
+            Pos view = shooter.getPosition();
+            shooter.setInstance(getInstance(), getPosition().withView(view.yaw(), view.pitch()));
+        }
         // zero fallDistance first so the teleport drop adds no extra fall damage
         FallDamage.resetFallDistance(shooter);
         if (shooter instanceof Player) {

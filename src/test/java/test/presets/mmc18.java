@@ -13,6 +13,7 @@ import io.github.term4.minestommechanics.mechanics.knockback.KnockbackConfigReso
 import io.github.term4.minestommechanics.mechanics.knockback.KnockbackComponent;
 import io.github.term4.minestommechanics.mechanics.knockback.KnockbackSystem;
 import io.github.term4.minestommechanics.mechanics.projectile.ProjectileConfig;
+import io.github.term4.minestommechanics.platform.compatibility.CompatConfig;
 import io.github.term4.minestommechanics.platform.player.PlayerConfig;
 import io.github.term4.minestommechanics.tracking.SprintTracker;
 import io.github.term4.minestommechanics.tracking.motion.VelocityConfig;
@@ -24,6 +25,7 @@ import io.github.term4.minestommechanics.util.Directions;
 import io.github.term4.minestommechanics.util.tick.TickScaler;
 import net.minestom.server.coordinate.Vec;
 import net.minestom.server.entity.Entity;
+import net.minestom.server.entity.EntityPose;
 import net.minestom.server.entity.LivingEntity;
 import net.minestom.server.instance.Instance;
 import net.minestom.server.item.ItemStack;
@@ -159,6 +161,21 @@ public final class mmc18 {
                 .build();
     }
 
+    /**
+     * mmc18 cross-version compat: serve 1.8 poses/movement to modern clients. {@code disabledPoses} forces {@code SWIMMING}
+     * (swim + the squeeze-to-fit crawl) and {@code FALL_FLYING} (elytra) back to {@code STANDING} server-side (the pose
+     * visual stays client-local). {@code restrictMovement} then blocks moving where the server hitbox can't fit, so a
+     * client rendering itself crawling still can't traverse the gap. {@code legacyHitbox} keeps the server box at 1.8 dims
+     * (no crouch shrink) + 1.8 eye heights, which also makes {@code restrictMovement} block the 1.5-block sneak gap.
+     */
+    public static CompatConfig compat() {
+        return CompatConfig.builder()
+                .disabledPoses(EntityPose.SWIMMING, EntityPose.FALL_FLYING)
+                .restrictMovement(true)
+                .legacyHitbox(true)
+                .build();
+    }
+
     // TODO: Update stub with actual minemen projectiles
     /**
      * mmc18 projectile config. Inherits the vanilla 1.8 baseline ({@link Vanilla18#projectileDefaults()} physics +
@@ -207,7 +224,7 @@ public final class mmc18 {
     private static final double VERTICAL_FRIC = VERTICAL_DECAY_N * VelocityConfig.DRAG_V;                   // 6.86
 
     /** Recent-sprint window (ticks) for both the sprint knockback and the axial drag's victim gate. */
-    private static final int SPRINT_BUFFER = 8;
+    private static final int SPRINT_BUFFER = 5;
     /** Vanilla sprint-jump horizontal impulse (blocks/tick) - the victim's reconstructed sprint speed while sprinting. */
     private static final double SPRINT_JUMP_IMPULSE = 0.2;
     /** Axial-drag coefficient - this term's own "frictionH", separate from the config's: {@code 0.475 * 0.2 = 0.095}. */

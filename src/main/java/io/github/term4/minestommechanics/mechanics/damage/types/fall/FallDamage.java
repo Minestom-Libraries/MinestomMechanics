@@ -20,7 +20,6 @@ import net.minestom.server.entity.Player;
 import net.minestom.server.event.Event;
 import net.minestom.server.event.EventNode;
 import net.minestom.server.event.entity.EntityTickEvent;
-import net.minestom.server.event.entity.EntityTeleportEvent;
 import net.minestom.server.event.player.PlayerMoveEvent;
 import net.minestom.server.event.player.PlayerSpawnEvent;
 import net.minestom.server.instance.Instance;
@@ -37,7 +36,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * lava halves it, and landing applies damage from {@link FallDamageConfig}.
  *
  * <p>Self-driven: players are tracked off their own move packets (with a per-tick poll for status-only onGround
- * packets); other living entities per tick. Creative/spectator/flying are exempt; teleports and spawns reset.
+ * packets); other living entities per tick. Creative/spectator/flying are exempt; (re)spawn resets. A plain teleport does
+ * NOT reset (vanilla 1.8/26 leave fall distance on teleport - the pearl zeroes it explicitly); callers reset via {@link #resetFallDistance}.
  */
 public final class FallDamage extends DamageType {
 
@@ -70,7 +70,6 @@ public final class FallDamage extends DamageType {
         EventNode<@NotNull Event> n = EventNode.all("mm:fall-damage");
         n.addListener(PlayerMoveEvent.class, this::onMove);
         n.addListener(EntityTickEvent.class, this::onTick);
-        n.addListener(EntityTeleportEvent.class, e -> resetFallDistance(e.getEntity()));
         n.addListener(PlayerSpawnEvent.class, e -> resetFallDistance(e.getPlayer()));
         system.node().addChild(n);
         node = n;
@@ -87,7 +86,7 @@ public final class FallDamage extends DamageType {
         polling = false;
     }
 
-    /** Clears an entity's accumulated fall distance (teleports, spawns, custom resets like pearls). */
+    /** Clears an entity's accumulated fall distance ((re)spawn + explicit resets like the ender pearl; vanilla does NOT reset on a plain teleport). */
     public static void resetFallDistance(Entity entity) {
         entity.removeTag(FALL_DISTANCE);
         entity.removeTag(PREV);

@@ -10,6 +10,7 @@ import io.github.term4.minestommechanics.mechanics.hunger.HungerConfig;
 import io.github.term4.minestommechanics.platform.fixes.FixesConfig;
 import io.github.term4.minestommechanics.mechanics.knockback.KnockbackConfig;
 import io.github.term4.minestommechanics.mechanics.projectile.ProjectileConfig;
+import io.github.term4.minestommechanics.platform.compatibility.CompatConfig;
 import io.github.term4.minestommechanics.platform.player.PlayerConfig;
 import io.github.term4.minestommechanics.tracking.motion.VelocityRule;
 import io.github.term4.minestommechanics.util.tick.TickScalingConfig;
@@ -140,6 +141,11 @@ public final class MechanicsProfiles {
     /** Effective blocking config for {@code subject} (the defender), or {@code null} when no scope sets one. */
     public @Nullable BlockingConfig blockingFor(@Nullable Entity subject) {
         return resolve(subject, MechanicsProfile::blocking);
+    }
+
+    /** Effective cross-version compatibility config for {@code subject}, or {@code null} when no scope sets one. */
+    public @Nullable CompatConfig compatFor(@Nullable Entity subject) {
+        return resolve(subject, MechanicsProfile::compat);
     }
 
     private <T> @Nullable T resolve(@Nullable Entity subject, Function<MechanicsProfile, @Nullable T> member) {

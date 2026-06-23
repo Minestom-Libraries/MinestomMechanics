@@ -2,7 +2,9 @@ package io.github.term4.minestommechanics.platform.player;
 
 import io.github.term4.minestommechanics.platform.fixes.client.SelfMetaFilter;
 import io.github.term4.minestommechanics.util.tick.TickScaler;
+import net.minestom.server.collision.BoundingBox;
 import net.minestom.server.coordinate.Pos;
+import net.minestom.server.entity.EntityPose;
 import net.minestom.server.entity.Metadata;
 import net.minestom.server.entity.Player;
 import net.minestom.server.network.packet.server.SendablePacket;
@@ -14,6 +16,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The library's custom {@link Player}, with two independent behaviors, both opt-in via {@code MinestomMechanics}.
@@ -40,6 +43,14 @@ public class OptimizedPlayer extends Player {
 
     // --- self-placement exclusion hook (driven by fixes.client.SelfPlacementFix) ---
     private boolean selfPlacing = false;
+
+    // --- cross-version compat: poses forced back to standing + hitbox-collision movement restriction + legacy hitbox/eye (driven by CompatConfig via PlayerConfigApplier) ---
+    private Set<EntityPose> disabledPoses = Set.of();
+    private boolean restrictMovement = false;
+    private boolean legacyHitbox = false;
+
+    /** 1.8 sneaking eye height for the legacy server-eye preset (1.8 standing 1.62 already = Minestom's default; modern crouch is lower). */
+    private static final double LEGACY_SNEAKING_EYE = 1.54;
 
     public OptimizedPlayer(PlayerConnection connection, GameProfile gameProfile) {
         super(connection, gameProfile);
@@ -128,6 +139,66 @@ public class OptimizedPlayer extends Player {
         } finally {
             processingClientInput = previous;
         }
+    }
+
+    /**
+     * Cross-version compat: a {@code CompatConfig}-disabled pose is rewritten to {@link EntityPose#STANDING} <em>before</em>
+     * it reaches metadata, so the player genuinely never enters it - nothing visible to self or viewers, matching a 1.8
+     * server. {@link #updatePose()} routes both the swim flag and the squeeze-to-fit crawl through {@code setPose}, so
+     * intercepting here covers both at the source (no after-the-fact flip-flop). The metadata layer dedups the repeated
+     * {@code STANDING} write, so a client holding a disabled input costs a single correction packet, not per-tick spam.
+     * Sent with the self-echo guard cleared so the {@code STANDING} correction reaches the mispredicting client too.
+     */
+    @Override
+    public void setPose(@NotNull EntityPose pose) {
+        if (disabledPoses != null && disabledPoses.contains(pose)) {
+            boolean previous = processingClientInput;
+            processingClientInput = false;
+            try {
+                super.setPose(EntityPose.STANDING);
+            } finally {
+                processingClientInput = previous;
+            }
+            return;
+        }
+        super.setPose(pose);
+    }
+
+    /** Poses rewritten to {@code STANDING} in {@link #setPose} (pushed from {@code CompatConfig} by {@code PlayerConfigApplier}). */
+    public void setDisabledPoses(@NotNull Set<EntityPose> poses) { this.disabledPoses = poses; }
+
+    public @NotNull Set<EntityPose> getDisabledPoses() { return disabledPoses; }
+
+    /** Whether moves into hitbox-block collision are rejected (compat; enforced by {@code CompatMovement}). Pushed from {@code CompatConfig}. */
+    public void setRestrictMovement(boolean v) { this.restrictMovement = v; }
+
+    public boolean isRestrictMovement() { return restrictMovement; }
+
+    /** Whether the server hitbox/eye height stay at 1.8 dimensions regardless of pose (no crouch shrink). Pushed from {@code CompatConfig}. */
+    public void setLegacyHitbox(boolean v) { this.legacyHitbox = v; }
+
+    public boolean isLegacyHitbox() { return legacyHitbox; }
+
+    /**
+     * Cross-version compat: with {@link #setLegacyHitbox legacy hitbox} on, the server box stays standing (the {@code boundingBox}
+     * field) regardless of pose, so a modern client's crouch/crawl shrink doesn't apply server-side (1.8 parity; lets
+     * {@code CompatMovement} block the 1.5-block sneak gap). Disabled poses already resolve to standing, so this only adds the sneak case.
+     */
+    @Override
+    public BoundingBox getBoundingBox() {
+        return legacyHitbox ? boundingBox : super.getBoundingBox();
+    }
+
+    /**
+     * The SERVER-treated eye height - the preset consumed by projectile spawn, drowning and suffocation. With
+     * {@code legacyHitbox} on it's the fixed 1.8 preset (sneaking 1.54, else the 1.62 standing default), so a crouching
+     * modern client still spawns/drowns at the 1.8 eye; off, it's Minestom's native value. This is value (b) of the
+     * eye-height model; value (a) - what the client believes, for reach/raytrace - is derived from the protocol separately.
+     */
+    @Override
+    public double getEyeHeight() {
+        if (legacyHitbox && getPose() == EntityPose.SNEAKING) return LEGACY_SNEAKING_EYE;
+        return super.getEyeHeight();
     }
 
     /**

@@ -4,6 +4,7 @@ import io.github.term4.minestommechanics.MechanicsProfiles;
 import io.github.term4.minestommechanics.MinestomMechanics;
 import io.github.term4.minestommechanics.Services;
 import io.github.term4.minestommechanics.api.event.AttackEvent;
+import io.github.term4.minestommechanics.api.event.PreAttackEvent;
 import net.minestom.server.event.Event;
 import net.minestom.server.event.EventDispatcher;
 import net.minestom.server.event.EventNode;
@@ -40,6 +41,10 @@ public final class AttackSystem {
      * -> ruleset. Public so custom hit detection submits hits exactly like the built-in packet detection.
      */
     public void apply(AttackSnapshot snap) {
+        // earliest hook: raw detected hit, before any config/ruleset. Observe-only today (reach log); a future anticheat can veto here.
+        PreAttackEvent pre = new PreAttackEvent(snap.attacker(), snap.target(), services);
+        EventDispatcher.call(pre);
+        if (pre.isCancelled()) return;
         // config chain: snapshot -> attacker scope -> install. inert when all three are absent; an empty config processes at the vanilla floor
         AttackConfig effective = snap.config();
         if (effective == null) {

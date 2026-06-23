@@ -2,6 +2,7 @@ package io.github.term4.minestommechanics;
 
 import io.github.term4.minestommechanics.mechanics.attack.AttackSystem;
 import io.github.term4.minestommechanics.mechanics.attribute.AttributeSystem;
+import io.github.term4.minestommechanics.platform.compatibility.CompatMovement;
 import io.github.term4.minestommechanics.platform.fixes.client.MetaFix;
 import io.github.term4.minestommechanics.platform.player.OptimizedPlayer;
 import io.github.term4.minestommechanics.platform.player.PlayerConfigApplier;
@@ -150,6 +151,8 @@ public final class MinestomMechanics {
             // Scoped PlayerConfig (profiles) -> OptimizedPlayer, applied at spawn (join / instance
             // change) and pushed to online players whenever a profile assignment changes.
             PlayerConfigApplier.install(this);
+            // Compat hitbox-collision movement restriction (inert unless a player's CompatConfig.restrictMovement is on).
+            CompatMovement.install(this);
         }
         // The global scope's scaling baselines drive physics + static-context durations; refresh on any profile change.
         profiles.onChange(() -> {
