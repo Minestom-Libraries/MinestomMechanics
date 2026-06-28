@@ -11,18 +11,13 @@ import org.jetbrains.annotations.Nullable;
 import java.util.List;
 
 /**
- * Fired when an explosion is triggered, after the per-entity exposure/falloff is computed but before knockback and
- * damage apply. Cancel to abort the whole explosion. {@link #targets()} is the live, mutable result set: a listener can
- * read each entity's {@link Target#exposure() raytrace exposure}, retune its {@link Target#knockback()} /
- * {@link Target#damage()}, or drop it from the list. Block destruction is intentionally not done by the library - a
- * listener breaks blocks and spawns effects from {@link #center()} + {@link #power()} ({@code fire} mirrors the request).
+ * Fired after per-entity exposure/falloff is computed, before knockback + damage apply. Cancel to abort. {@link #targets()}
+ * is the live, mutable result set - a listener reads each {@link Target}'s exposure and retunes its knockback/damage (or
+ * drops it). Block destruction is delegated: a listener handles it off {@link #center()} + {@link #power()}.
  */
 public class ExplosionEvent implements CancellableEvent {
 
-    /**
-     * One entity caught in the explosion. {@code exposure} is the raytraced line-of-sight fraction (1.0 when the toggle is
-     * off); {@code knockback} (the falloff push) and {@code damage} are the computed effects, both mutable for a listener to override.
-     */
+    /** One entity caught in the explosion: read-only {@code distance}/{@code exposure}, mutable {@code knockback} (the falloff push) + {@code damage}. */
     public static final class Target {
         private final Entity entity;
         private final double distance;

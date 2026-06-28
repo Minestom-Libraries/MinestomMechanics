@@ -8,13 +8,12 @@ import org.jetbrains.annotations.Nullable;
 import java.util.function.Function;
 
 /**
- * Immutable explosion config: the small per-explosion knob set (radius, damage curve, knockback, exposure). Damage is
- * applied through the {@code DamageSystem} via the explosion damage type, so mitigation/i-frames/death are not configured
- * here. Use {@link #builder()}, {@link #toBuilder()}.
+ * Immutable per-explosion config (radius, damage curve, knockback, exposure). Mitigation/i-frames/death are the
+ * {@code DamageSystem}'s, not configured here. Use {@link #builder()}, {@link #toBuilder()}.
  */
 public final class ExplosionConfig extends Config<ExplosionContext, ExplosionConfig> {
 
-    /** Default radius for the no-power {@code explode} overloads / the {@code ExplosionSupplier} path; an explicit call power wins. */
+    /** Default radius for the no-power {@code explode} overloads; an explicit call power wins. */
     public final FieldValue<ExplosionContext, Double> power;
     /** Damage-curve constant: 8.0 (1.8) or 7.0 (modern). */
     public final FieldValue<ExplosionContext, Double> damageConstant;

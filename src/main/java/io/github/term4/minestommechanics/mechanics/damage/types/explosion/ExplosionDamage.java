@@ -9,9 +9,8 @@ import net.kyori.adventure.key.Key;
 import java.util.Set;
 
 /**
- * Explosion damage ({@code minecraft:explosion}): the {@code ExplosionSystem} computes the per-entity amount from the
- * exposure/falloff curve and hands it in via the snapshot's amount override, so this type only declares the Blast
- * Protection category + Minestom mapping. Knockback and the exposure raytrace stay in the system.
+ * Explosion damage ({@code minecraft:explosion}): the {@code ExplosionSystem} computes the amount and hands it in via the
+ * snapshot, so this type only declares the Blast-Protection category + Minestom mapping (knockback/raytrace stay in the system).
  */
 public final class ExplosionDamage extends DamageType {
 
@@ -19,8 +18,7 @@ public final class ExplosionDamage extends DamageType {
     public static final ExplosionDamage INSTANCE = new ExplosionDamage();
 
     private ExplosionDamage() {
-        // ownsVelocityBroadcast: the ExplosionSystem delivers the full knockback (base KB + push) itself, so the
-        // DamageSystem must not also send its hurt-velocity broadcast.
+        // ownsVelocityBroadcast: the ExplosionSystem owns the KB delivery, so DamageSystem must not also broadcast
         super(KEY, "Explosion", VanillaTypes.EXPLOSION,
                 DamageTypeConfig.builder(KEY).baseAmount(0.0).ownsVelocityBroadcast(true).build());
     }

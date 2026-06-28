@@ -38,10 +38,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Explosion system: selects entities in range, raytraces exposure, computes the vanilla falloff knockback + damage, and
- * fires {@link ExplosionEvent} carrying the per-entity results for listeners to read/override. Knockback rides the
- * {@link KnockbackSystem} (base knockback + the falloff push) on a fresh hit, or the explosion packet during i-frames;
- * damage rides the {@link DamageSystem}. Block destruction is delegated - a listener reads {@link ExplosionEvent#center()} + power.
+ * Explosion system: entity selection + exposure raytrace + the vanilla falloff curve, fired through {@link ExplosionEvent}.
+ * Knockback rides the {@link KnockbackSystem} (base + push) on a fresh hit, the explosion packet during i-frames; damage
+ * rides the {@link DamageSystem}; blocks are delegated to a listener off {@link ExplosionEvent#center()} + power.
  */
 public final class ExplosionSystem implements MechanicsModule {
 
@@ -121,7 +120,7 @@ public final class ExplosionSystem implements MechanicsModule {
             if (distance > doubleRadius) continue;
             Point eyeOrigin = entity.getPosition().add(0, entity.getEyeHeight(), 0);
             float exposure = resolved.exposure() ? ExplosionExposure.seenPercent(instance, center, entity) : 1.0f;
-            // knockback reduction (1.8 Blast Protection / modern explosion KB resistance) routes through the attribute layer - TODO
+            // knockback reduction (Blast Protection / KB resistance): TODO via the attribute layer
             ExplosionCalculator.Hit hit = ExplosionCalculator.compute(center, power, eyeOrigin, distance, exposure,
                     resolved.damageConstant(), resolved.floorDamage(), resolved.knockbackMultiplier(), 0.0);
             if (hit == null) continue;

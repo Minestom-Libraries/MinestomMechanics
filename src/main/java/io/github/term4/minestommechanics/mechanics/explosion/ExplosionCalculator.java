@@ -6,11 +6,9 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Pure per-entity explosion math, shared by 1.8 and 26.1 (the algorithm is identical; the constants differ - 1.8 uses
- * {@code damageConstant} 8.0 and floors the damage, 26.1 uses 7.0). The caller supplies {@code exposure} (the seen-percent
- * raycast) and {@code knockbackReduction} (1.8 Blast Protection / 26.1 knockback resistance, 0 = none).
- *
- * <p>Knockback is the falloff push (the explosion's own directional impulse); damage is the base amount for the damage pipeline.
+ * Pure per-entity explosion math (shared 1.8/26.1; constants differ: 1.8 = damageConstant 8.0 floored, 26.1 = 7.0).
+ * {@code exposure} = the seen-percent raycast, {@code knockbackReduction} = the Blast-Protection / KB-resistance cut (0 = none).
+ * Returns the falloff push + the base damage amount.
  */
 public final class ExplosionCalculator {
 
