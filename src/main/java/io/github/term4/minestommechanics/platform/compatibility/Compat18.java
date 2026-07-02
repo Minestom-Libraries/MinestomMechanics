@@ -32,6 +32,7 @@ public final class Compat18 {
                 .oldPhysics(true)          // Animatium clients only: 1.8 movement/block physics (momentum threshold, no bed bounce, no honey/bubble)
                 .disableEntityPush(true)   // Animatium clients only: not shoved by entity collision (preference; pair w/ server-side push disable)
                 .oldPlacement(true)        // Animatium clients only: 1.8 placement (no same-tick break+place refill / floating block)
+                .nativeShortVelocity(true) // Animatium clients only: byte-exact 1.8 velocity wire (gated on the advertised decoder)
                 .removeAttackCooldown(true) // server-side (any client): no modern attack cooldown / crosshair indicator (1.8 full hits)
                 .build();
     }
@@ -59,6 +60,7 @@ public final class Compat18 {
                 .oldPhysics(false)
                 .disableEntityPush(false)
                 .oldPlacement(false)
+                .nativeShortVelocity(false)
                 .removeAttackCooldown(false)
                 .build();
     }

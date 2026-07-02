@@ -33,6 +33,7 @@ import net.minestom.server.event.EventFilter;
 import net.minestom.server.event.EventNode;
 import net.minestom.server.event.player.AsyncPlayerConfigurationEvent;
 import net.minestom.server.event.player.PlayerBlockPlaceEvent;
+import net.minestom.server.event.player.PlayerSpawnEvent;
 import net.minestom.server.event.trait.PlayerEvent;
 import org.jetbrains.annotations.NotNull;
 import net.minestom.server.instance.InstanceContainer;
@@ -186,7 +187,15 @@ public class ExampleServer {
             player.getInventory().addItemStack(ItemStack.of(Material.POTION).with(DataComponents.POTION_CONTENTS,
                     new PotionContents(new CustomPotionEffect(PotionEffect.SPEED, 0, 1200, false, true, true))));
 
-            // Full diamond armor on spawn - to test 1.8 armor visibility to other clients (the spawn-with-armor-already-set case)
+        });
+
+        // Full diamond armor to test 1.8 armor visibility to other clients (the spawn-with-armor-already-set case). Applied on
+        // FIRST SPAWN, not AsyncPlayerConfigurationEvent: Minestom updates an item's attribute modifiers (ARMOR, ...) only for
+        // the inventory's viewers, and a player becomes a viewer of its OWN inventory in UNSAFE_init - after the config event.
+        // So armor set during config is visible but grants 0 armor until re-equipped; by PlayerSpawnEvent the player is a viewer.
+        globalEventHandler.addListener(PlayerSpawnEvent.class, event -> {
+            if (!event.isFirstSpawn()) return;
+            Player player = event.getPlayer();
             player.setHelmet(ItemStack.of(Material.DIAMOND_HELMET));
             player.setChestplate(ItemStack.of(Material.DIAMOND_CHESTPLATE));
             player.setLeggings(ItemStack.of(Material.DIAMOND_LEGGINGS));

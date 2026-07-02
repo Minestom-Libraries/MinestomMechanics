@@ -24,7 +24,9 @@ import java.util.Map;
  * <p>Applied to ALL clients (not gated on {@code isLegacy}): dropping empty slots is what vanilla does, so it's harmless for a
  * modern client, and gating on the legacy check leaked through the join window (the equipment of existing players is sent to a
  * just-joined viewer before its protocol is resolved). A single-slot AIR update (clearing a slot) is left untouched. Hooked from
- * {@link io.github.term4.minestommechanics.platform.player.OptimizedPlayer#sendPacket}.
+ * both {@link io.github.term4.minestommechanics.platform.player.OptimizedPlayer#sendPacket} (per-viewer / new-viewer sends) and
+ * {@code OptimizedPlayer#sendPacketToViewers} (the grouped bulk resend on respawn/teleport, before it becomes a CachedPacket the
+ * per-viewer hook can't unwrap).
  *
  * <p><b>Temporary:</b> this is the server-side workaround. The proper fix patches Minestom's {@code getEquipmentsPacket} to
  * skip empty slots like vanilla (upstream branch {@code fix/skip-empty-equipment-slots}); once that is merged and on the

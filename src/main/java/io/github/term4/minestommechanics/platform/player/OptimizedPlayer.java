@@ -137,6 +137,17 @@ public class OptimizedPlayer extends Player {
     }
 
     /**
+     * Bulk equipment resends to viewers (respawn/teleport {@code refreshAfterTeleport}) get grouped into a
+     * {@code CachedPacket} that the per-viewer {@link #sendPacket} transform can't unwrap - so strip empty slots here, on
+     * the still-bare packet, before grouping. Otherwise the stray {@code BODY=AIR} reaches ViaBackwards and the chestplate
+     * renders invisible on legacy clients after respawn.
+     */
+    @Override
+    public void sendPacketToViewers(@NotNull SendablePacket packet) {
+        super.sendPacketToViewers(LegacyEquipmentFix.rewrite(packet));
+    }
+
+    /**
      * Arms the self-echo filter around tick-driven pose recalculation. {@link Player#updatePose()} runs every server tick
      * (not only in a packet listener), recomputing the pose from whether the player still fits - where crawl enter/exit
      * happens. Without arming the flag here the self-bound pose echo slips through, causing the crawl/stand stutter

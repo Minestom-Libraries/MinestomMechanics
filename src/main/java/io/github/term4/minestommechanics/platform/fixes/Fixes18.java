@@ -6,6 +6,7 @@ import io.github.term4.minestommechanics.platform.fixes.client.LegacyViewDistanc
 import io.github.term4.minestommechanics.platform.fixes.client.SelfPlacementFixConfig;
 import io.github.term4.minestommechanics.platform.fixes.visuals.VisualsConfig;
 import io.github.term4.minestommechanics.platform.fixes.visuals.legacy_1_8.LegacyArrowVisibilityConfig;
+import io.github.term4.minestommechanics.platform.fixes.world.BlockBreakProgressFixConfig;
 import io.github.term4.minestommechanics.platform.fixes.world.BlockPlacementFixConfig;
 
 /**
@@ -23,6 +24,7 @@ public final class Fixes18 {
                 .visuals(VisualsConfig.builder()
                         .legacyArrowVisibility(LegacyArrowVisibilityConfig.builder().enabled(true).deflectParticles(true).build())
                         .build())
+                .blockBreakProgress(BlockBreakProgressFixConfig.builder().enabled(true).build()) // crack overlay for other players (Minestom never broadcasts it, any client version)
                 .blockPlacement(BlockPlacementFixConfig.builder().enabled(true).build()) // TODO: Remove after PR is merged to minestom
                 .selfPlacement(SelfPlacementFixConfig.builder().enabled(true).build()) // For 1.8 clients so they can place ladders while climbing up
                 .legacyEquipmentFix(LegacyEquipmentFixConfig.builder().enabled(true).build()) // strip empty equip slots for legacy clients (fixes BODY=AIR -> chestplate-invisible)
