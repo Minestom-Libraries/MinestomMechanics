@@ -67,6 +67,8 @@ public abstract class ProjectileEntity extends Entity {
     protected double entityHitGrow = DEFAULT_ENTITY_HIT_GROW;
     /** In-flight velocity broadcast interval: {@code <= 0} = never (vanilla arrow, the edge-slide fix), {@code N} = every N ticks. Gates {@link #sendPacketToViewers}. */
     protected int velocitySyncInterval;
+    /** Vanilla-style flight: per-tick movement packets to viewers (the 1.8/26 tracker shape); {@code false} = silent, clients predict from the spawn velocity. */
+    protected boolean broadcastMovement;
     /** Counts the automatic per-tick velocity packets, for the {@link #velocitySyncInterval} throttle. */
     private long autoVelocityCounter;
     /** Drag+gravity order relative to the per-tick move: 1.8 {@code DRAG_AFTER_MOVE} (default), 26.1 {@code DRAG_BEFORE_MOVE}. */
@@ -204,6 +206,8 @@ public abstract class ProjectileEntity extends Entity {
     public void setEntityHitGrow(double grow) { this.entityHitGrow = grow; }
 
     public void setVelocitySyncInterval(int interval) { this.velocitySyncInterval = interval; }
+
+    public void setBroadcastMovement(boolean v) { this.broadcastMovement = v; }
 
     public void setPhysicsOrder(@NotNull ProjectileTypeConfig.PhysicsOrder order) { this.physicsOrder = order; }
 
@@ -364,7 +368,7 @@ public abstract class ProjectileEntity extends Entity {
         // place at the physics-resolved position (not the collision point) - fixes modern clients seeing the
         // projectile float in front of the block face. On the stick tick, use the 0.05-pulled-back stuckPlacement.
         Pos place = justBecameStuck && stuckPlacement != null ? stuckPlacement : newPosition;
-        refreshPosition(place.withView(yaw, pitch), false, false);
+        refreshPosition(place.withView(yaw, pitch), false, broadcastMovement);
         if (justBecameStuck) this.lastSyncedPosition = getPosition();
     }
 

@@ -21,5 +21,6 @@ public final class VanillaTypes {
     public static final RegistryKey<DamageType> DROWN = DamageType.DROWN;
     public static final RegistryKey<DamageType> IN_WALL = DamageType.IN_WALL;
     public static final RegistryKey<DamageType> EXPLOSION = DamageType.EXPLOSION;
+    public static final RegistryKey<DamageType> MAGIC = DamageType.MAGIC;
 
 }

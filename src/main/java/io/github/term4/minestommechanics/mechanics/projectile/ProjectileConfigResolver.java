@@ -81,11 +81,13 @@ public final class ProjectileConfigResolver {
                 or(resolve(tc.spawnOffsetVertical, ctx), 0.0),
                 or(resolve(tc.spawnOffsetSideways, ctx), 0.0),
                 or(resolve(tc.speed, ctx), 1.5),
+                or(resolve(tc.launchPitchOffset, ctx), 0.0), // vanilla splash potion / XP bottle = -20
                 or(resolve(tc.spread, ctx), 0.0),
                 or(resolve(tc.momentumHorizontal, ctx), 0.0), // vanilla 1.8 adds no shooter momentum (26.1 = 1.0)
                 or(resolve(tc.momentumVertical, ctx), 0.0),
                 or(resolve(tc.shooterImmunityTicks, ctx), 5),
                 or(resolve(tc.entityHitGrow, ctx), 0.3), // vanilla 1.8 Entity{Arrow,Projectile}: target grow 0.3 each side
+                or(resolve(tc.broadcastMovement, ctx), Boolean.FALSE), // vanilla trackers broadcast per tick; silent = the client-prediction mode
                 or(resolve(tc.syncInterval, ctx), 20),
                 or(resolve(tc.velocitySyncInterval, ctx), 0), // 0 = no per-tick velocity (vanilla arrow); the edge-slide fix
                 or(resolve(tc.physicsOrder, ctx), ProjectileTypeConfig.PhysicsOrder.DRAG_AFTER_MOVE), // 26.1 = DRAG_BEFORE_MOVE
@@ -133,11 +135,13 @@ public final class ProjectileConfigResolver {
             double spawnOffsetVertical,
             double spawnOffsetSideways,
             double speed,
+            double launchPitchOffset,
             double spread,
             double momentumHorizontal,
             double momentumVertical,
             int shooterImmunityTicks,
             double entityHitGrow,
+            boolean broadcastMovement,
             int syncInterval,
             int velocitySyncInterval,
             ProjectileTypeConfig.PhysicsOrder physicsOrder,

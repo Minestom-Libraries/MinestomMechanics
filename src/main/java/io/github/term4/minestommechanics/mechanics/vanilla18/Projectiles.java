@@ -8,6 +8,7 @@ import io.github.term4.minestommechanics.mechanics.projectile.types.Egg;
 import io.github.term4.minestommechanics.mechanics.projectile.types.Pearl;
 import io.github.term4.minestommechanics.mechanics.projectile.types.ProjectileTypeConfig;
 import io.github.term4.minestommechanics.mechanics.projectile.types.Snowball;
+import io.github.term4.minestommechanics.mechanics.projectile.types.SplashPotion;
 
 /**
  * Vanilla 1.8 projectile config: the generic {@link #defaults()} baseline plus per-type entries. The canonical 1.8
@@ -29,7 +30,8 @@ public final class Projectiles {
                         ProjectileTypeConfig.builder(Snowball.KEY).build(),
                         ProjectileTypeConfig.builder(Egg.KEY).build(),
                         pearl(),
-                        arrow())
+                        arrow(),
+                        splashPotion())
                 .shootables(new Bow()) // the bow launcher (item -> arrow); exists in 1.8
                 .build();
     }
@@ -60,6 +62,24 @@ public final class Projectiles {
     public static ProjectileTypeConfig pearl() {
         return ProjectileTypeConfig.builder(Pearl.KEY)
                 .selfHit(ProjectileTypeConfig.HitResponse.PASS_THROUGH)
+                .build();
+    }
+
+    /**
+     * Vanilla 1.8 splash potion overrides (on {@link #defaults()}): lobbed slow + high (speed {@code 0.5}, pitch offset
+     * {@code -20}, gravity {@code 0.05}) and never a contact hit ({@code entityHit/selfHit DESTROY} - the impact splash in
+     * {@code SplashPotionEntity} is the whole effect, no hurt animation / knockback / invul).
+     */
+    public static ProjectileTypeConfig splashPotion() {
+        return ProjectileTypeConfig.builder(SplashPotion.KEY)
+                .gravity(0.05).speed(0.5).launchPitchOffset(-20.0)
+                .legacyPotionColors(true)
+                // vanilla tracker wire shape: per-tick moves + velocity (a potion's per-tick gravity delta exceeds
+                // vanilla's 0.02 send threshold, so vanilla effectively sends velocity every tick too). Silent flight
+                // instead leaves clients predicting a potion they can't break: land, freeze, pop late.
+                .broadcastMovement(true).velocitySyncInterval(1)
+                .entityHit(ProjectileTypeConfig.HitResponse.DESTROY)
+                .selfHit(ProjectileTypeConfig.HitResponse.DESTROY)
                 .build();
     }
 

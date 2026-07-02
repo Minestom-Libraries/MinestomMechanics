@@ -2,6 +2,7 @@ package io.github.term4.minestommechanics.mechanics.projectile.entities.arrow;
 
 import io.github.term4.minestommechanics.mechanics.attribute.catalog.enchant.Flame;
 import io.github.term4.minestommechanics.mechanics.projectile.ProjectileConfigResolver.ResolvedHit;
+import io.github.term4.minestommechanics.mechanics.attribute.catalog.VanillaPotions;
 import io.github.term4.minestommechanics.mechanics.projectile.ProjectileSnapshot;
 import io.github.term4.minestommechanics.mechanics.projectile.ProjectileSystem;
 import io.github.term4.minestommechanics.mechanics.projectile.entities.ManagedProjectile;
@@ -135,7 +136,7 @@ public class ArrowEntity extends ManagedProjectile {
     private void applyOnHitEffects(LivingEntity le) {
         for (CustomPotionEffect e : onHitEffects) {
             int duration = Math.max(1, Math.round(e.duration() * potionDurationScale));
-            le.addEffect(new Potion(e.id(), e.amplifier(), duration, (byte) (Potion.PARTICLES_FLAG | Potion.ICON_FLAG)));
+            VanillaPotions.addEffect(le, new Potion(e.id(), e.amplifier(), duration, (byte) (Potion.PARTICLES_FLAG | Potion.ICON_FLAG)));
         }
     }
 

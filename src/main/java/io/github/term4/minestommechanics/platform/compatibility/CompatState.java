@@ -45,6 +45,8 @@ public final class CompatState {
     private boolean animatiumClient = false;
     /** Features the client's Animatium build advertised it can natively handle (its {@code ServerFeature} set, from the {@code animatium:info} capability bits); gates wire-format features on real decoder support. */
     private @NotNull Set<AnimatiumFeature> supportedFeatures = Set.of();
+    /** Whether this is a confirmed legacy (&le;1.8) client (set by {@code ClientInfoTracker} when the proxy details resolve); skips the {@code attack_range} stamp - a 1.8 client has the 1.8 attack box natively, and the stamp only round-trips through Via as junk NBT on every item. */
+    private boolean legacyClient;
 
     /** Poses rewritten to {@code STANDING} in {@code setPose}. */
     public void setDisabledPoses(@NotNull Set<EntityPose> poses) { this.disabledPoses = poses; }
@@ -134,6 +136,10 @@ public final class CompatState {
         return nativeFeatures.contains(AnimatiumFeature.ALL) || nativeFeatures.contains(feature);
     }
 
+    /** Whether this is a confirmed legacy (&le;1.8) client; see {@link #setLegacyClient}. */
+    public boolean legacyClient() { return legacyClient; }
+    public void setLegacyClient(boolean v) { this.legacyClient = v; }
+
     /** Records the disabled pose the client believes it's in (called by setPose when intercepting a disabled pose). */
     public void recordInterceptedPose(@NotNull EntityPose pose) { this.interceptedPose = pose; }
 
@@ -172,7 +178,7 @@ public final class CompatState {
      * box client-side, so stamping would be redundant (and would pollute its inventory view).
      */
     public @NotNull SendablePacket stampAttackRange(@NotNull SendablePacket packet) {
-        if (attackHitboxMargin == null || handlesNatively(AnimatiumFeature.PICK_INFLATION)) return packet;
+        if (attackHitboxMargin == null || legacyClient || handlesNatively(AnimatiumFeature.PICK_INFLATION)) return packet;
         ServerPacket sp = PacketShapes.unwrapStateless(packet);
         return switch (sp) {
             case SetSlotPacket p -> new SetSlotPacket(p.windowId(), p.stateId(), p.slot(), withAttackRange(p.itemStack()));

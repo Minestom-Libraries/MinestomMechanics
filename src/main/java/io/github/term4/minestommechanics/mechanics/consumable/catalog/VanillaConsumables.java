@@ -4,19 +4,15 @@ import io.github.term4.minestommechanics.mechanics.attribute.catalog.VanillaPoti
 import io.github.term4.minestommechanics.mechanics.consumable.Consumable;
 import io.github.term4.minestommechanics.mechanics.consumable.ConsumableBehavior;
 import io.github.term4.minestommechanics.mechanics.consumable.ConsumableConfigResolver.ConsumableContext;
+import io.github.term4.minestommechanics.mechanics.damage.types.magic.HealOrHarm;
 import io.github.term4.minestommechanics.mechanics.hunger.HungerSystem;
 import net.kyori.adventure.key.Key;
-import net.minestom.server.component.DataComponents;
 import net.minestom.server.entity.Player;
 import net.minestom.server.item.ItemAnimation;
 import net.minestom.server.item.Material;
-import net.minestom.server.item.component.PotionContents;
 import net.minestom.server.potion.CustomPotionEffect;
 import net.minestom.server.potion.Potion;
 import net.minestom.server.potion.PotionEffect;
-
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Vanilla consumable <em>type identities</em> (the golden apples) + the building blocks presets use for their
@@ -71,7 +67,7 @@ public final class VanillaConsumables {
             @Override public void onFinish(ConsumableContext ctx) {
                 Player u = ctx.user();
                 byte flags = ctx.particles().potionFlags();
-                for (Effect e : effects) u.addEffect(new Potion(e.id(), e.amplifier(), e.ticks(), flags));
+                for (Effect e : effects) VanillaPotions.addEffect(u, new Potion(e.id(), e.amplifier(), e.ticks(), flags));
                 HungerSystem hunger = ctx.services() != null ? ctx.services().hunger() : null;
                 if (hunger != null) hunger.restore(u, nutrition, saturation);
             }
@@ -87,19 +83,18 @@ public final class VanillaConsumables {
 
     /**
      * A {@link ConsumableBehavior} that, on finish, applies the item's {@code potion_contents} - the base potion (via
-     * {@link VanillaPotions}) + any custom effects - at full duration. Reuses the exact payload tipped arrows resolve, so
-     * extending {@link VanillaPotions} covers both. A potion with no contents (a water bottle) is a no-op.
+     * {@link VanillaPotions}) + any custom effects - at full duration. Instant effects (healing/harming) apply through
+     * {@link HealOrHarm} at intensity {@code 1.0} (vanilla drink); a water bottle is a no-op.
      */
     public static ConsumableBehavior drinkPotion() {
         return new ConsumableBehavior() {
             @Override public void onFinish(ConsumableContext ctx) {
-                PotionContents pc = ctx.item().get(DataComponents.POTION_CONTENTS);
-                if (pc == null) return;
-                List<CustomPotionEffect> effects = new ArrayList<>(pc.customEffects());
-                if (pc.potion() != null) effects.addAll(VanillaPotions.effects(pc.potion()));
                 Player u = ctx.user();
                 byte flags = ctx.particles().potionFlags();
-                for (CustomPotionEffect e : effects) u.addEffect(new Potion(e.id(), e.amplifier(), e.duration(), flags));
+                for (CustomPotionEffect e : VanillaPotions.payload(ctx.item())) {
+                    if (HealOrHarm.apply(ctx.services(), u, u, null, e, 1.0)) continue;
+                    VanillaPotions.addEffect(u, new Potion(e.id(), e.amplifier(), e.duration(), flags));
+                }
             }
         };
     }

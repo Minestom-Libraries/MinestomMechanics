@@ -85,6 +85,8 @@ public final class ProjectileTypeConfig extends TypeConfig<ProjectileContext, Pr
     /** Sideways spawn offset perpendicular to the look (vanilla 1.8 throwing-hand shift, {@code 0.16}; 26.1: 0). */
     public final @Nullable FieldValue<ProjectileContext, Double> spawnOffsetSideways;
     public final @Nullable FieldValue<ProjectileContext, Double> speed;
+    /** Degrees added to the aim pitch for the launch heading only (vanilla {@code shootFromRotation} shape - the horizontal keeps the un-offset pitch). Splash potion / XP bottle {@code -20}; {@code 0} = straight aim. */
+    public final @Nullable FieldValue<ProjectileContext, Double> launchPitchOffset;
     public final @Nullable FieldValue<ProjectileContext, Double> spread;
     /** Fraction of the shooter's horizontal velocity (x/z) folded into the launch velocity. {@code 0} = none (1.8), {@code 1} = full (26.1). */
     public final @Nullable FieldValue<ProjectileContext, Double> momentumHorizontal;
@@ -97,6 +99,8 @@ public final class ProjectileTypeConfig extends TypeConfig<ProjectileContext, Pr
     public final @Nullable FieldValue<ProjectileContext, HitResponse> selfHit;
     /** What the projectile does when it hits any other entity (default {@code HIT}); {@code DESTROY} = a pure impact trigger, no hit damage/KB (MineMen fireball). */
     public final @Nullable FieldValue<ProjectileContext, HitResponse> entityHit;
+    /** Vanilla-style flight: per-tick movement packets to viewers (the 1.8/26 tracker shape). {@code false} (default) = silent flight, clients predict from the spawn velocity. */
+    public final @Nullable FieldValue<ProjectileContext, Boolean> broadcastMovement;
     public final @Nullable FieldValue<ProjectileContext, Integer> syncInterval;
     /** In-flight velocity broadcast interval (ticks): {@code <= 0} = never (vanilla arrow, the edge-slide fix), {@code N} = every N ticks. */
     public final @Nullable FieldValue<ProjectileContext, Integer> velocitySyncInterval;
@@ -114,6 +118,8 @@ public final class ProjectileTypeConfig extends TypeConfig<ProjectileContext, Pr
     public final @Nullable FieldValue<ProjectileContext, Double> critChance;
     /** Pluggable {@link ProjectileBehavior} layered over the built-in effects (no subclassing). Default {@link ProjectileBehavior#NONE}. */
     public final @Nullable FieldValue<ProjectileContext, ProjectileBehavior> behavior;
+    /** Splash-potion particle palette for MODERN viewers: {@code true} = the 1.8 liquid colors, {@code false} (default) = modern. Legacy viewers always get the raw 1.8 potion value (their client picks its own colors). */
+    public final @Nullable FieldValue<ProjectileContext, Boolean> legacyPotionColors;
     public final @Nullable FieldValue<ProjectileContext, KnockbackConfig> knockback;
     public final @Nullable FieldValue<ProjectileContext, KnockbackSource> knockbackSource;
     public final @Nullable FieldValue<ProjectileContext, Double> damage;
@@ -138,6 +144,7 @@ public final class ProjectileTypeConfig extends TypeConfig<ProjectileContext, Pr
         this.spawnOffsetVertical = b.spawnOffsetVertical;
         this.spawnOffsetSideways = b.spawnOffsetSideways;
         this.speed = b.speed;
+        this.launchPitchOffset = b.launchPitchOffset;
         this.spread = b.spread;
         this.momentumHorizontal = b.momentumHorizontal;
         this.momentumVertical = b.momentumVertical;
@@ -145,6 +152,7 @@ public final class ProjectileTypeConfig extends TypeConfig<ProjectileContext, Pr
         this.entityHitGrow = b.entityHitGrow;
         this.selfHit = b.selfHit;
         this.entityHit = b.entityHit;
+        this.broadcastMovement = b.broadcastMovement;
         this.syncInterval = b.syncInterval;
         this.velocitySyncInterval = b.velocitySyncInterval;
         this.physicsOrder = b.physicsOrder;
@@ -154,6 +162,7 @@ public final class ProjectileTypeConfig extends TypeConfig<ProjectileContext, Pr
         this.explosionPower = b.explosionPower;
         this.critChance = b.critChance;
         this.behavior = b.behavior;
+        this.legacyPotionColors = b.legacyPotionColors;
         this.knockback = b.knockback;
         this.knockbackSource = b.knockbackSource;
         this.damage = b.damage;
@@ -178,6 +187,7 @@ public final class ProjectileTypeConfig extends TypeConfig<ProjectileContext, Pr
         b.spawnOffsetVertical = merge(spawnOffsetVertical, base.spawnOffsetVertical);
         b.spawnOffsetSideways = merge(spawnOffsetSideways, base.spawnOffsetSideways);
         b.speed = merge(speed, base.speed);
+        b.launchPitchOffset = merge(launchPitchOffset, base.launchPitchOffset);
         b.spread = merge(spread, base.spread);
         b.momentumHorizontal = merge(momentumHorizontal, base.momentumHorizontal);
         b.momentumVertical = merge(momentumVertical, base.momentumVertical);
@@ -185,6 +195,7 @@ public final class ProjectileTypeConfig extends TypeConfig<ProjectileContext, Pr
         b.entityHitGrow = merge(entityHitGrow, base.entityHitGrow);
         b.selfHit = merge(selfHit, base.selfHit);
         b.entityHit = merge(entityHit, base.entityHit);
+        b.broadcastMovement = merge(broadcastMovement, base.broadcastMovement);
         b.syncInterval = merge(syncInterval, base.syncInterval);
         b.velocitySyncInterval = merge(velocitySyncInterval, base.velocitySyncInterval);
         b.physicsOrder = merge(physicsOrder, base.physicsOrder);
@@ -194,6 +205,7 @@ public final class ProjectileTypeConfig extends TypeConfig<ProjectileContext, Pr
         b.explosionPower = merge(explosionPower, base.explosionPower);
         b.critChance = merge(critChance, base.critChance);
         b.behavior = merge(behavior, base.behavior);
+        b.legacyPotionColors = merge(legacyPotionColors, base.legacyPotionColors);
         b.knockback = merge(knockback, base.knockback);
         b.knockbackSource = merge(knockbackSource, base.knockbackSource);
         b.damage = merge(damage, base.damage);
@@ -230,6 +242,7 @@ public final class ProjectileTypeConfig extends TypeConfig<ProjectileContext, Pr
         private FieldValue<ProjectileContext, Double> spawnOffsetVertical;
         private FieldValue<ProjectileContext, Double> spawnOffsetSideways;
         private FieldValue<ProjectileContext, Double> speed;
+        private FieldValue<ProjectileContext, Double> launchPitchOffset;
         private FieldValue<ProjectileContext, Double> spread;
         private FieldValue<ProjectileContext, Double> momentumHorizontal;
         private FieldValue<ProjectileContext, Double> momentumVertical;
@@ -237,6 +250,7 @@ public final class ProjectileTypeConfig extends TypeConfig<ProjectileContext, Pr
         private FieldValue<ProjectileContext, Double> entityHitGrow;
         private FieldValue<ProjectileContext, HitResponse> selfHit;
         private FieldValue<ProjectileContext, HitResponse> entityHit;
+        private FieldValue<ProjectileContext, Boolean> broadcastMovement;
         private FieldValue<ProjectileContext, Integer> syncInterval;
         private FieldValue<ProjectileContext, Integer> velocitySyncInterval;
         private FieldValue<ProjectileContext, PhysicsOrder> physicsOrder;
@@ -246,6 +260,7 @@ public final class ProjectileTypeConfig extends TypeConfig<ProjectileContext, Pr
         private FieldValue<ProjectileContext, Double> explosionPower;
         private FieldValue<ProjectileContext, Double> critChance;
         private FieldValue<ProjectileContext, ProjectileBehavior> behavior;
+        private FieldValue<ProjectileContext, Boolean> legacyPotionColors;
         private FieldValue<ProjectileContext, KnockbackConfig> knockback;
         private FieldValue<ProjectileContext, KnockbackSource> knockbackSource;
         private FieldValue<ProjectileContext, Double> damage;
@@ -270,6 +285,7 @@ public final class ProjectileTypeConfig extends TypeConfig<ProjectileContext, Pr
             spawnOffsetVertical = c.spawnOffsetVertical;
             spawnOffsetSideways = c.spawnOffsetSideways;
             speed = c.speed;
+            launchPitchOffset = c.launchPitchOffset;
             spread = c.spread;
             momentumHorizontal = c.momentumHorizontal;
             momentumVertical = c.momentumVertical;
@@ -277,6 +293,7 @@ public final class ProjectileTypeConfig extends TypeConfig<ProjectileContext, Pr
             entityHitGrow = c.entityHitGrow;
             selfHit = c.selfHit;
             entityHit = c.entityHit;
+            broadcastMovement = c.broadcastMovement;
             syncInterval = c.syncInterval;
             velocitySyncInterval = c.velocitySyncInterval;
             physicsOrder = c.physicsOrder;
@@ -286,6 +303,7 @@ public final class ProjectileTypeConfig extends TypeConfig<ProjectileContext, Pr
             explosionPower = c.explosionPower;
             critChance = c.critChance;
             behavior = c.behavior;
+            legacyPotionColors = c.legacyPotionColors;
             knockback = c.knockback;
             knockbackSource = c.knockbackSource;
             damage = c.damage;
@@ -333,6 +351,10 @@ public final class ProjectileTypeConfig extends TypeConfig<ProjectileContext, Pr
         public Builder speed(Double v) { speed = FieldValue.constant(v); return this; }
         public Builder speed(Function<ProjectileContext, Double> fn) { speed = FieldValue.of(fn); return this; }
         public Builder speed(Double fallback, Function<ProjectileContext, Double> fn) { speed = FieldValue.ofWithFallback(fallback, fn); return this; }
+        /** Degrees added to the aim pitch for the launch heading only (splash potion / XP bottle {@code -20}; {@code 0} = straight aim). */
+        public Builder launchPitchOffset(Double v) { launchPitchOffset = FieldValue.constant(v); return this; }
+        public Builder launchPitchOffset(Function<ProjectileContext, Double> fn) { launchPitchOffset = FieldValue.of(fn); return this; }
+        public Builder launchPitchOffset(Double fallback, Function<ProjectileContext, Double> fn) { launchPitchOffset = FieldValue.ofWithFallback(fallback, fn); return this; }
         public Builder spread(Double v) { spread = FieldValue.constant(v); return this; }
         public Builder spread(Function<ProjectileContext, Double> fn) { spread = FieldValue.of(fn); return this; }
         public Builder spread(Double fallback, Function<ProjectileContext, Double> fn) { spread = FieldValue.ofWithFallback(fallback, fn); return this; }
@@ -361,6 +383,10 @@ public final class ProjectileTypeConfig extends TypeConfig<ProjectileContext, Pr
         public Builder entityHit(HitResponse v) { entityHit = FieldValue.constant(v); return this; }
         public Builder entityHit(Function<ProjectileContext, HitResponse> fn) { entityHit = FieldValue.of(fn); return this; }
         public Builder entityHit(HitResponse fallback, Function<ProjectileContext, HitResponse> fn) { entityHit = FieldValue.ofWithFallback(fallback, fn); return this; }
+        /** Vanilla-style flight: per-tick movement packets to viewers ({@code true} = the 1.8/26 tracker shape). */
+        public Builder broadcastMovement(Boolean v) { broadcastMovement = FieldValue.constant(v); return this; }
+        public Builder broadcastMovement(Function<ProjectileContext, Boolean> fn) { broadcastMovement = FieldValue.of(fn); return this; }
+        public Builder broadcastMovement(Boolean fallback, Function<ProjectileContext, Boolean> fn) { broadcastMovement = FieldValue.ofWithFallback(fallback, fn); return this; }
         public Builder syncInterval(Integer v) { syncInterval = FieldValue.constant(v); return this; }
         public Builder syncInterval(Function<ProjectileContext, Integer> fn) { syncInterval = FieldValue.of(fn); return this; }
         public Builder syncInterval(Integer fallback, Function<ProjectileContext, Integer> fn) { syncInterval = FieldValue.ofWithFallback(fallback, fn); return this; }
@@ -390,6 +416,10 @@ public final class ProjectileTypeConfig extends TypeConfig<ProjectileContext, Pr
         public Builder behavior(ProjectileBehavior v) { behavior = FieldValue.constant(v); return this; }
         public Builder behavior(Function<ProjectileContext, ProjectileBehavior> fn) { behavior = FieldValue.of(fn); return this; }
         public Builder behavior(ProjectileBehavior fallback, Function<ProjectileContext, ProjectileBehavior> fn) { behavior = FieldValue.ofWithFallback(fallback, fn); return this; }
+        /** Splash-potion particle palette for modern viewers: {@code true} = the 1.8 liquid colors. */
+        public Builder legacyPotionColors(Boolean v) { legacyPotionColors = FieldValue.constant(v); return this; }
+        public Builder legacyPotionColors(Function<ProjectileContext, Boolean> fn) { legacyPotionColors = FieldValue.of(fn); return this; }
+        public Builder legacyPotionColors(Boolean fallback, Function<ProjectileContext, Boolean> fn) { legacyPotionColors = FieldValue.ofWithFallback(fallback, fn); return this; }
         public Builder knockback(KnockbackConfig v) { knockback = FieldValue.constant(v); return this; }
         public Builder knockback(Function<ProjectileContext, KnockbackConfig> fn) { knockback = FieldValue.of(fn); return this; }
         public Builder knockback(KnockbackConfig fallback, Function<ProjectileContext, KnockbackConfig> fn) { knockback = FieldValue.ofWithFallback(fallback, fn); return this; }

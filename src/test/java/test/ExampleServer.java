@@ -51,6 +51,7 @@ import net.kyori.adventure.key.Key;
 import net.minestom.server.potion.CustomPotionEffect;
 import net.minestom.server.potion.Potion;
 import net.minestom.server.potion.PotionEffect;
+import net.minestom.server.potion.PotionType;
 import net.minestom.server.timer.TaskSchedule;
 import test.presets.hypixel.Hypixel;
 import test.presets.customItems.PrimedTnt;
@@ -186,6 +187,15 @@ public class ExampleServer {
             // a drinkable Speed potion (custom effect, so it works without extending VanillaPotions)
             player.getInventory().addItemStack(ItemStack.of(Material.POTION).with(DataComponents.POTION_CONTENTS,
                     new PotionContents(new CustomPotionEffect(PotionEffect.SPEED, 0, 1200, false, true, true))));
+            // registry-id potions: a drinkable Healing (instant) + splash Swiftness + splash Harming (VanillaPotions rows).
+            // Amount 1: potions are unstackable and addItemStack is ALL_OR_NOTHING - an overstacked add (16 x1 stacks)
+            // silently no-ops in a nearly-full inventory.
+            player.getInventory().addItemStack(ItemStack.of(Material.POTION).with(DataComponents.POTION_CONTENTS,
+                    new PotionContents(PotionType.HEALING)));
+            player.getInventory().addItemStack(ItemStack.of(Material.SPLASH_POTION).with(DataComponents.POTION_CONTENTS,
+                    new PotionContents(PotionType.SWIFTNESS)));
+            player.getInventory().addItemStack(ItemStack.of(Material.SPLASH_POTION).with(DataComponents.POTION_CONTENTS,
+                    new PotionContents(PotionType.HARMING)));
 
         });
 

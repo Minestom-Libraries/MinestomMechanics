@@ -19,6 +19,7 @@ import io.github.term4.minestommechanics.mechanics.projectile.types.Pearl;
 import io.github.term4.minestommechanics.mechanics.projectile.types.ProjectileType;
 import io.github.term4.minestommechanics.mechanics.projectile.types.ProjectileTypeConfig;
 import io.github.term4.minestommechanics.mechanics.projectile.types.Snowball;
+import io.github.term4.minestommechanics.mechanics.projectile.types.SplashPotion;
 import io.github.term4.minestommechanics.tracking.motion.MotionTracker;
 import io.github.term4.minestommechanics.mechanics.attribute.catalog.enchant.Flame;
 import io.github.term4.minestommechanics.mechanics.attribute.catalog.enchant.Power;
@@ -140,6 +141,7 @@ public final class ProjectileSystem implements MechanicsModule {
     private static void stampFlight(ProjectileEntity entity, ResolvedFlight flight, ProjectileSnapshot snap) {
         entity.setBoundingBox(flight.boundingBox().width(), flight.boundingBox().height(), flight.boundingBox().depth());
         entity.setAerodynamics(new Aerodynamics(flight.gravity(), flight.verticalDrag(), flight.horizontalDrag()));
+        entity.setBroadcastMovement(flight.broadcastMovement());
         entity.setSynchronizationTicks(TickScaler.duration(flight.syncInterval(), KEY));
         entity.setVelocitySyncInterval(TickScaler.duration(flight.velocitySyncInterval(), KEY));
         // Minestom seeds nextSynchronizationTick from the DEFAULT interval (20) and setSynchronizationTicks doesn't reset it,
@@ -175,7 +177,10 @@ public final class ProjectileSystem implements MechanicsModule {
     }
 
     private Vec launchVelocity(Entity shooter, ResolvedFlight cfg, double power) {
-        Vec aim = shooter.getPosition().direction();
+        Pos view = shooter.getPosition();
+        Vec aim = cfg.launchPitchOffset() != 0
+                ? Directions.headingWithPitchOffset(view.yaw(), view.pitch(), cfg.launchPitchOffset())
+                : view.direction();
         Vec vel = aim.mul(cfg.speed() * power);
         if (cfg.spread() > 0) {
             ThreadLocalRandom r = ThreadLocalRandom.current();
@@ -224,6 +229,7 @@ public final class ProjectileSystem implements MechanicsModule {
         register(Pearl.INSTANCE);
         register(Arrow.INSTANCE);
         register(Fireball.INSTANCE);
+        register(SplashPotion.INSTANCE);
         return this;
     }
 

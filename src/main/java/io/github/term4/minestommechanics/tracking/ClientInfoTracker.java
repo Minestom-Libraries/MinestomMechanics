@@ -1,5 +1,6 @@
 package io.github.term4.minestommechanics.tracking;
 
+import io.github.term4.minestommechanics.platform.player.OptimizedPlayer;
 import net.minestom.server.entity.Player;
 import net.minestom.server.event.EventFilter;
 import net.minestom.server.event.EventNode;
@@ -75,6 +76,12 @@ public final class ClientInfoTracker implements Tracker {
         }
         info.proxyDetails = proxyDetails;
         info.cachedProtocol = null;
+        // legacy resolved: flag compat (stops the attack_range stamp, which only reaches a 1.8 client as junk NBT
+        // through Via) and re-send the inventory once so items stamped during the unknown-protocol window go out clean
+        if (player instanceof OptimizedPlayer op && ClientVersion.isLegacy(getProtocol(player)) && !op.compat().legacyClient()) {
+            op.compat().setLegacyClient(true);
+            if (op.compat().attackHitboxMargin() != null) op.getInventory().update();
+        }
     }
 
     public @Nullable String getProxyDetails(Player player) {

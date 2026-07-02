@@ -3,10 +3,8 @@ package io.github.term4.minestommechanics.mechanics.projectile.entities.arrow;
 import io.github.term4.minestommechanics.mechanics.attribute.catalog.VanillaPotions;
 import net.minestom.server.component.DataComponents;
 import net.minestom.server.item.ItemStack;
-import net.minestom.server.item.component.PotionContents;
 import net.minestom.server.potion.CustomPotionEffect;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -21,10 +19,7 @@ public final class TippedArrows {
 
     /** Stamps {@code arrowItem}'s tipped payload onto {@code arrow}; no-op if the item carries no {@code potion_contents}. */
     public static void apply(ArrowEntity arrow, ItemStack arrowItem) {
-        PotionContents pc = arrowItem.get(DataComponents.POTION_CONTENTS);
-        if (pc == null) return;
-        List<CustomPotionEffect> effects = new ArrayList<>(pc.customEffects());
-        if (pc.potion() != null) effects.addAll(VanillaPotions.effects(pc.potion()));
+        List<CustomPotionEffect> effects = VanillaPotions.payload(arrowItem);
         if (effects.isEmpty()) return;
         Float scale = arrowItem.get(DataComponents.POTION_DURATION_SCALE);
         arrow.setOnHitEffects(effects, scale != null ? scale : 1.0f);

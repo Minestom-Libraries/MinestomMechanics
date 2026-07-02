@@ -1,9 +1,17 @@
 package io.github.term4.minestommechanics.mechanics.attribute.catalog;
 
+import net.minestom.server.component.DataComponents;
+import net.minestom.server.entity.LivingEntity;
+import net.minestom.server.item.ItemStack;
+import net.minestom.server.item.component.PotionContents;
 import net.minestom.server.potion.CustomPotionEffect;
+import net.minestom.server.potion.Potion;
 import net.minestom.server.potion.PotionEffect;
 import net.minestom.server.potion.PotionType;
+import net.minestom.server.potion.TimedPotion;
+import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -71,5 +79,62 @@ public final class VanillaPotions {
     /** The concrete effects for a vanilla base potion type, or empty for an effectless base (water / mundane / thick / awkward) or an unmapped type. */
     public static List<CustomPotionEffect> effects(PotionType potion) {
         return TABLE.getOrDefault(potion, List.of());
+    }
+
+    /**
+     * The full effect payload of a potion item's {@code potion_contents}: its custom effects plus the base potion's rows.
+     * The shared resolve for every potion consumer (drinkable, tipped arrow, splash); empty for a non-potion item or a
+     * water bottle.
+     */
+    public static List<CustomPotionEffect> payload(@Nullable ItemStack item) {
+        PotionContents pc = item != null ? item.get(DataComponents.POTION_CONTENTS) : null;
+        if (pc == null) return List.of();
+        List<CustomPotionEffect> effects = new ArrayList<>(pc.customEffects());
+        if (pc.potion() != null) effects.addAll(effects(pc.potion()));
+        return effects;
+    }
+
+    /**
+     * Vanilla add-or-combine (1.8 {@code MobEffect.a}, same shape in 26): a higher amplifier replaces amplifier +
+     * duration, an equal amplifier only extends a shorter remaining duration, and a weaker or shorter effect is
+     * ignored - a plain {@code addEffect} would let any potion override any active effect of the same type.
+     */
+    public static void addEffect(LivingEntity living, Potion potion) {
+        TimedPotion existing = null;
+        for (TimedPotion t : living.getActiveEffects()) {
+            if (t.potion().effect() == potion.effect()) { existing = t; break; }
+        }
+        if (existing != null) {
+            long remaining = existing.potion().duration() - (living.getAliveTicks() - existing.startingTicks());
+            boolean upgrade = potion.amplifier() > existing.potion().amplifier()
+                    || (potion.amplifier() == existing.potion().amplifier() && potion.duration() > remaining);
+            if (!upgrade) return;
+        }
+        living.addEffect(potion);
+    }
+
+    /** 1.8 drinkable potion damage values (the 1.8 wire encoding of potion identity); splash = {@code + 8192}. */
+    private static final Map<PotionType, Integer> LEGACY_VALUES = Map.ofEntries(
+            Map.entry(PotionType.NIGHT_VISION, 8198), Map.entry(PotionType.LONG_NIGHT_VISION, 8262),
+            Map.entry(PotionType.INVISIBILITY, 8206), Map.entry(PotionType.LONG_INVISIBILITY, 8270),
+            Map.entry(PotionType.LEAPING, 8203), Map.entry(PotionType.LONG_LEAPING, 8267), Map.entry(PotionType.STRONG_LEAPING, 8235),
+            Map.entry(PotionType.FIRE_RESISTANCE, 8195), Map.entry(PotionType.LONG_FIRE_RESISTANCE, 8259),
+            Map.entry(PotionType.SWIFTNESS, 8194), Map.entry(PotionType.LONG_SWIFTNESS, 8258), Map.entry(PotionType.STRONG_SWIFTNESS, 8226),
+            Map.entry(PotionType.SLOWNESS, 8202), Map.entry(PotionType.LONG_SLOWNESS, 8266),
+            Map.entry(PotionType.WATER_BREATHING, 8205), Map.entry(PotionType.LONG_WATER_BREATHING, 8269),
+            Map.entry(PotionType.HEALING, 8261), Map.entry(PotionType.STRONG_HEALING, 8229),
+            Map.entry(PotionType.HARMING, 8204), Map.entry(PotionType.STRONG_HARMING, 8236),
+            Map.entry(PotionType.POISON, 8196), Map.entry(PotionType.LONG_POISON, 8260), Map.entry(PotionType.STRONG_POISON, 8228),
+            Map.entry(PotionType.REGENERATION, 8193), Map.entry(PotionType.LONG_REGENERATION, 8257), Map.entry(PotionType.STRONG_REGENERATION, 8225),
+            Map.entry(PotionType.STRENGTH, 8201), Map.entry(PotionType.LONG_STRENGTH, 8265), Map.entry(PotionType.STRONG_STRENGTH, 8233),
+            Map.entry(PotionType.WEAKNESS, 8200), Map.entry(PotionType.LONG_WEAKNESS, 8264));
+
+    /**
+     * The 1.8 SPLASH damage value for a base potion - what a real 1.8 server carries on the wire (a 1.8 client reads
+     * it straight from level event 2002, which Via passes through untranslated). Splash water for an unmapped type.
+     */
+    public static int legacySplashValue(@Nullable PotionType potion) {
+        Integer drinkable = potion != null ? LEGACY_VALUES.get(potion) : null;
+        return drinkable != null ? drinkable + 8192 : 16384;
     }
 }

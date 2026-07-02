@@ -44,6 +44,19 @@ public final class Directions {
         return new Vec(v.x() * cos - v.z() * sin, v.y(), v.x() * sin + v.z() * cos);
     }
 
+    /**
+     * Vanilla {@code shootFromRotation} heading (identical 1.8-26): horizontal from the UN-offset pitch, vertical from
+     * {@code pitch + pitchOffsetDeg}, normalized - NOT a rotation of the look vector (the potion's -20° keeps its full
+     * horizontal reach).
+     */
+    public static Vec headingWithPitchOffset(double yawDeg, double pitchDeg, double pitchOffsetDeg) {
+        double yaw = Math.toRadians(yawDeg), pitch = Math.toRadians(pitchDeg);
+        double x = -Math.sin(yaw) * Math.cos(pitch);
+        double y = -Math.sin(Math.toRadians(pitchDeg + pitchOffsetDeg));
+        double z = Math.cos(yaw) * Math.cos(pitch);
+        return new Vec(x, y, z).normalize();
+    }
+
     /** Unit vector of {@code (dx, dy, dz)}, or {@code null} when its length is under {@code epsilon}. */
     public static @Nullable Vec unit3D(double dx, double dy, double dz, double epsilon) {
         double len = Math.sqrt(dx * dx + dy * dy + dz * dz);
